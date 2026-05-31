@@ -330,9 +330,8 @@ const I18N = {
     cfgMaxRounds: "Max rounds", cfgStrategy: "Convergence strategy",
     cfgEnabled: "Enabled", cfgCommand: "Command", cfgStable: "Stable for", cfgSettle: "Settle for",
     cfgTimeout: "Timeout",
-    cfgPromptFirst: "Prompt: first turn", cfgPromptNext: "Prompt: next turns",
     saved: "Config saved",
-    tmplActive: "Active template", tmplEditing: "Editing", tmplNew: "+ New", tmplDelete: "Delete",
+    tmplActive: "Active template", tmplNew: "+ New", tmplDelete: "Delete",
     tmplName: "Name", tmplAsk: "Ask prompt (optional)",
     tmplCodexFirst: "Codex · first turn", tmplCodexNext: "Codex · next turns",
     tmplClaudeFirst: "Claude · first turn", tmplClaudeNext: "Claude · next turns",
@@ -361,9 +360,8 @@ const I18N = {
     cfgMaxRounds: "最大轮次", cfgStrategy: "收敛策略",
     cfgEnabled: "启用", cfgCommand: "启动命令", cfgStable: "稳定判定", cfgSettle: "等待启动",
     cfgTimeout: "超时",
-    cfgPromptFirst: "提示词: 首轮", cfgPromptNext: "提示词: 后续轮",
     saved: "配置已保存",
-    tmplActive: "当前使用", tmplEditing: "正在编辑", tmplNew: "+ 新建", tmplDelete: "删除",
+    tmplActive: "当前使用", tmplNew: "+ 新建", tmplDelete: "删除",
     tmplName: "名称", tmplAsk: "追问提示词(可选)",
     tmplCodexFirst: "Codex · 首轮", tmplCodexNext: "Codex · 后续轮",
     tmplClaudeFirst: "Claude · 首轮", tmplClaudeNext: "Claude · 后续轮",
@@ -644,7 +642,6 @@ function renderConfig(cfg) {
     ${selectField(t("cfgFirst"), "flow.first", f.first, ["codex", "claude"])}
     ${field(t("cfgMaxRounds"), "flow.max_rounds", f.max_rounds)}
     ${selectField(t("cfgStrategy"), "flow.strategy", f.strategy, ["combined", "diff-fixpoint", "ask-gate"])}
-    ${field(t("cfgAskPrompt"), "flow.ask_prompt", f.ask_prompt || "", "textarea")}
     <h3>Codex</h3>
     ${boolField(t("cfgEnabled"), "agents.codex.enabled", a.codex.enabled)}
     ${field(t("cfgCommand"), "agents.codex.command", a.codex.command)}

@@ -651,25 +651,106 @@ function renderConfig(cfg) {
     ${field(t("cfgStable"), "agents.codex.stable_for", a.codex.stable_for)}
     ${field(t("cfgSettle"), "agents.codex.settle_for", a.codex.settle_for)}
     ${field(t("cfgTimeout"), "agents.codex.timeout", a.codex.timeout)}
-    ${field(t("cfgPromptFirst"), "agents.codex.prompt_first", a.codex.prompt_first || "", "textarea", DEFAULTS.codex && DEFAULTS.codex.first)}
-    ${field(t("cfgPromptNext"), "agents.codex.prompt_next", a.codex.prompt_next || "", "textarea", DEFAULTS.codex && DEFAULTS.codex.next)}
     <h3>Claude</h3>
     ${boolField(t("cfgEnabled"), "agents.claude.enabled", a.claude.enabled)}
     ${field(t("cfgCommand"), "agents.claude.command", a.claude.command)}
     ${field(t("cfgStable"), "agents.claude.stable_for", a.claude.stable_for)}
     ${field(t("cfgSettle"), "agents.claude.settle_for", a.claude.settle_for)}
     ${field(t("cfgTimeout"), "agents.claude.timeout", a.claude.timeout)}
-    ${field(t("cfgPromptFirst"), "agents.claude.prompt_first", a.claude.prompt_first || "", "textarea", DEFAULTS.claude && DEFAULTS.claude.first)}
-    ${field(t("cfgPromptNext"), "agents.claude.prompt_next", a.claude.prompt_next || "", "textarea", DEFAULTS.claude && DEFAULTS.claude.next)}
   `;
 }
 
-// DEFAULTS holds the built-in prompt templates for the config's language, shown
-// as textarea placeholders so an empty prompt field reads as "uses this default".
-let DEFAULTS = {};
-async function loadDefaults(lang) {
-  DEFAULTS = (await api("/api/defaults?lang=" + encodeURIComponent(lang || "")).catch(() => ({}))) || {};
+// ---- prompt template library ----
+// The library is separate from run config: a set of named templates, each with
+// both agents' first/next prompts + an ask question. Two built-ins ship and are
+// read-only ("修改审核" diff review, "代码全局审核" whole-codebase sweep); empty
+// fields fall back to the built-in go-audit doctrine, shown as grey placeholders.
+const TBUILTIN = ["default", "full-review"];
+let TLIB = { active: "default", templates: [] };
+let TDEF = {}; // built-in defaults for the editing template's kind (placeholders)
+let tSel = "default"; // id of the template currently shown/selected (also = active on save)
+
+function tplById(id) { return (TLIB.templates || []).find((x) => x.id === id); }
+
+// loadDefaultsFor fetches the built-in prompt text for a review kind so the
+// placeholders match what an empty field resolves to at run time.
+async function loadDefaultsFor(kind) {
+  const lang = (CFG && CFG.lang) || "";
+  TDEF = (await api("/api/defaults?lang=" + encodeURIComponent(lang) + "&kind=" + encodeURIComponent(kind || "")).catch(() => ({}))) || {};
 }
+
+async function openTemplates() {
+  TLIB = await api("/api/templates");
+  tSel = TLIB.active;
+  await renderTmpl();
+  $("tmplDialog").showModal();
+}
+
+async function renderTmpl() {
+  let tpl = tplById(tSel) || (TLIB.templates || [])[0] || { id: "default" };
+  tSel = tpl.id;
+  await loadDefaultsFor(tpl.kind);
+  const ro = TBUILTIN.includes(tpl.id);
+  const roA = ro ? " readonly" : "";
+  const cx = tpl.codex || {}, cl = tpl.claude || {}, d = TDEF;
+  const opts = (TLIB.templates || [])
+    .map((x) => `<option value="${esc(x.id)}" ${x.id === tSel ? "selected" : ""}>${esc(x.name || x.id)}</option>`)
+    .join("");
+  const ta = (id, val, ph) => `<textarea id="${id}"${roA} placeholder="${esc(ph || "")}">${esc(val || "")}</textarea>`;
+  $("tmplFields").innerHTML = `
+    <h3>${t("templates")}</h3>
+    <label>${t("tmplActive")}</label>
+    <div style="display:flex;gap:8px;align-items:center">
+      <select id="tmplSel" style="flex:1">${opts}</select>
+      <button type="button" class="ghost" id="tmplNew">${t("tmplNew")}</button>
+      <button type="button" class="ghost" id="tmplDel"${ro ? " disabled" : ""}>${t("tmplDelete")}</button>
+    </div>
+    ${ro ? `<label></label><small style="color:var(--muted)">${t("tmplDefaultHint")}</small>` : ""}
+    <label>${t("tmplName")}</label><input id="tmplName" value="${esc(tpl.name || "")}"${roA} />
+    <label>${t("tmplCodexFirst")}</label>${ta("tmplCxFirst", cx.first, d.codex && d.codex.first)}
+    <label>${t("tmplCodexNext")}</label>${ta("tmplCxNext", cx.next, d.codex && d.codex.next)}
+    <label>${t("tmplClaudeFirst")}</label>${ta("tmplClFirst", cl.first, d.claude && d.claude.first)}
+    <label>${t("tmplClaudeNext")}</label>${ta("tmplClNext", cl.next, d.claude && d.claude.next)}
+    <label>${t("tmplAsk")}</label>${ta("tmplAsk", tpl.ask, "")}
+  `;
+  $("tmplSel").onchange = async () => { captureTmpl(); tSel = $("tmplSel").value; await renderTmpl(); };
+  $("tmplNew").onclick = () => {
+    captureTmpl();
+    const name = prompt(t("tmplNamePrompt"), "");
+    if (!name) return;
+    const id = "t" + Date.now().toString(36);
+    TLIB.templates.push({ id, name, kind: "diff", codex: {}, claude: {}, ask: "" });
+    tSel = id;
+    renderTmpl();
+  };
+  $("tmplDel").onclick = () => {
+    if (TBUILTIN.includes(tSel) || !confirm(t("tmplDelConfirm"))) return;
+    TLIB.templates = (TLIB.templates || []).filter((x) => x.id !== tSel);
+    if (TLIB.active === tSel) TLIB.active = "default";
+    tSel = TLIB.active;
+    renderTmpl();
+  };
+}
+
+// captureTmpl copies the editor fields back into the selected custom template
+// (built-ins are read-only, so their fields are never captured).
+function captureTmpl() {
+  const tpl = tplById(tSel);
+  if (!tpl || TBUILTIN.includes(tpl.id)) return;
+  if ($("tmplName")) tpl.name = $("tmplName").value;
+  if ($("tmplCxFirst")) tpl.codex = { first: $("tmplCxFirst").value, next: $("tmplCxNext").value };
+  if ($("tmplClFirst")) tpl.claude = { first: $("tmplClFirst").value, next: $("tmplClNext").value };
+  if ($("tmplAsk")) tpl.ask = $("tmplAsk").value;
+}
+
+$("btnTemplates").onclick = () => openTemplates().catch((e) => banner(e.message, false));
+$("tmplForm").addEventListener("submit", async (e) => {
+  if (!e.submitter || e.submitter.value !== "save") return;
+  captureTmpl();
+  TLIB.active = tSel; // the selected template is the one runs will use
+  try { await api("/api/templates", "POST", TLIB); banner(t("tmplSaved"), true); }
+  catch (err) { banner(err.message, false); }
+});
 
 function setByPath(obj, path, val) {
   const parts = path.split(".");

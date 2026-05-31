@@ -82,6 +82,130 @@
     .cfg h3 { margin-top:10px; }
   }
 </style>
+<!-- Polished override layer: redefines look & feel on top of the base rules
+     above (later rules win). Keeps all existing class names / JS untouched. -->
+<style>
+  :root {
+    --bg:#0b0e14; --bg2:#0f131c; --panel:#141925; --panel2:#1a2030;
+    --border:#262e3f; --border2:#323c52; --fg:#e6edf3; --muted:#8b95a7;
+    --accent:#6aa3ff; --accent2:#8ab4ff; --good:#3fb950; --warn:#e3b341; --bad:#f85149;
+    --radius:10px; --radius-sm:7px; --shadow:0 1px 2px rgba(0,0,0,.4), 0 4px 16px rgba(0,0,0,.25);
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB",Roboto,Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  }
+  html,body { height:100%; }
+  body {
+    font:14px/1.55 var(--sans); color:var(--fg);
+    background:radial-gradient(1200px 600px at 70% -10%, #18203200, #0b0e14 60%), var(--bg);
+    -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+  }
+
+  /* ---- header ---- */
+  header {
+    gap:14px; padding:12px 20px; background:rgba(20,25,37,.7);
+    backdrop-filter:saturate(140%) blur(10px); border-bottom:1px solid var(--border);
+    position:sticky; top:0; z-index:50;
+  }
+  header h1 { font-size:16px; font-weight:700; letter-spacing:.2px; display:flex; align-items:center; gap:7px; }
+  #strategy { color:var(--muted); font-size:12.5px; }
+  .dot { width:8px; height:8px; box-shadow:0 0 0 4px rgba(106,163,255,.0); }
+  .dot.run { background:var(--good); box-shadow:0 0 0 4px rgba(63,185,80,.15); }
+  .dot.done { background:var(--accent); }
+  #statusText { font-size:12.5px; color:var(--muted); }
+  select.lang { border-radius:var(--radius-sm); padding:5px 8px; background:var(--panel2); cursor:pointer; }
+
+  /* ---- buttons ---- */
+  button {
+    font:600 13px/1 var(--sans); background:var(--panel2); color:var(--fg);
+    border:1px solid var(--border2); border-radius:var(--radius-sm);
+    padding:8px 13px; cursor:pointer; transition:all .14s ease; white-space:nowrap;
+  }
+  button:hover:not(:disabled) { border-color:var(--accent); background:#222b3d; transform:translateY(-1px); }
+  button:active:not(:disabled) { transform:translateY(0); }
+  button.primary { background:linear-gradient(180deg,var(--accent2),var(--accent)); color:#08111f; border-color:transparent; box-shadow:0 2px 8px rgba(106,163,255,.3); }
+  button.primary:hover:not(:disabled) { filter:brightness(1.08); background:linear-gradient(180deg,var(--accent2),var(--accent)); }
+  button.danger { color:var(--bad); }
+  button.danger:hover:not(:disabled) { border-color:var(--bad); background:#2a1517; }
+  button:disabled { opacity:.35; cursor:not-allowed; }
+  button.toggle { border-radius:999px; padding:7px 16px; }
+  button.toggle.on { background:linear-gradient(180deg,var(--accent2),var(--accent)); color:#08111f; border-color:transparent; box-shadow:0 2px 8px rgba(106,163,255,.3); }
+
+  .bar { gap:9px; padding:12px 20px; background:var(--bg2); border-bottom:1px solid var(--border); }
+  .sep { background:var(--border2); margin:0 6px; }
+
+  /* ---- panels ---- */
+  main { gap:14px; padding:16px 20px; grid-template-columns:repeat(auto-fit, minmax(380px, 1fr)); }
+  .panel { border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow); overflow:hidden; background:var(--panel); }
+  .panel h2 {
+    padding:11px 14px; font:600 13px/1 var(--sans); letter-spacing:.3px;
+    background:linear-gradient(180deg,var(--panel2),var(--panel)); border-bottom:1px solid var(--border);
+  }
+  .panel h2 .v { font:600 10.5px/1 var(--sans); letter-spacing:.5px; padding:4px 9px; border-radius:999px; background:#0d1117; border:1px solid var(--border2); text-transform:uppercase; }
+  .v.CLEAN{color:var(--good);border-color:rgba(63,185,80,.4)} .v.FIXED{color:var(--warn);border-color:rgba(227,179,65,.4)} .v.ISSUES{color:var(--bad);border-color:rgba(248,81,73,.4)}
+  .term { background:#0a0d13; }
+  .term-empty { color:var(--muted); font-size:13px; }
+  .panel .ctl { padding:10px 12px; gap:8px; background:var(--bg2); border-top:1px solid var(--border); }
+  .panel .ctl input { background:#0a0d13; border:1px solid var(--border2); border-radius:var(--radius-sm); padding:8px 11px; font:13px/1 var(--mono); transition:border-color .14s; }
+  .panel .ctl input:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(106,163,255,.15); }
+
+  /* ---- timeline ---- */
+  .timeline { border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow); padding:10px 14px; background:var(--panel); }
+  .ev { padding:3px 0; font:12.5px/1.5 var(--mono); border-bottom:1px solid rgba(255,255,255,.03); }
+  .ev:last-child { border-bottom:none; }
+  .ev .k { min-width:120px; color:var(--accent); font-weight:600; }
+
+  /* ---- config dialog ---- */
+  dialog {
+    border:1px solid var(--border2); border-radius:14px; padding:0;
+    width:min(720px,94vw); max-height:88vh; box-shadow:0 20px 60px rgba(0,0,0,.6);
+    background:var(--panel); color:var(--fg);
+  }
+  dialog::backdrop { background:rgba(5,8,14,.66); backdrop-filter:blur(3px); }
+  #cfgForm { display:flex; flex-direction:column; max-height:88vh; }
+  #cfgFields { padding:22px 24px 6px; overflow:auto; }
+  /* card-section feel: each h3 starts a titled group; the grid pairs read like a table */
+  .cfg { grid-template-columns:160px 1fr; gap:11px 16px; align-items:center; }
+  .cfg h3 {
+    grid-column:1/-1; margin:22px 0 10px; padding:0 0 9px; font:700 13px/1 var(--sans);
+    letter-spacing:.4px; color:var(--fg); border-bottom:1px solid var(--border2);
+    display:flex; align-items:center; gap:8px;
+  }
+  .cfg h3:first-child { margin-top:2px; }
+  .cfg h3::before { content:""; width:3px; height:14px; border-radius:2px; background:var(--accent); }
+  .cfg label { color:var(--muted); font-size:13px; }
+  .cfg input,.cfg select,.cfg textarea {
+    background:#0a0d13; border:1px solid var(--border2); border-radius:var(--radius-sm);
+    padding:8px 11px; font:13px/1.4 var(--sans); transition:border-color .14s, box-shadow .14s;
+  }
+  .cfg textarea { min-height:70px; font:12.5px/1.5 var(--mono); resize:vertical; }
+  .cfg input:focus,.cfg select:focus,.cfg textarea:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(106,163,255,.15); }
+  .cfg textarea::placeholder { color:#5a6678; opacity:.7; }
+  .row-end { padding:16px 24px; margin:0; border-top:1px solid var(--border); background:var(--bg2); border-radius:0 0 14px 14px; }
+
+  .banner { margin:12px 20px 0; border-radius:var(--radius-sm); font-weight:500; }
+
+  /* ---- scrollbars ---- */
+  ::-webkit-scrollbar { width:10px; height:10px; }
+  ::-webkit-scrollbar-thumb { background:#2b3447; border-radius:6px; border:2px solid transparent; background-clip:padding-box; }
+  ::-webkit-scrollbar-thumb:hover { background:#3a455c; background-clip:padding-box; }
+  ::-webkit-scrollbar-track { background:transparent; }
+
+  /* ---- mobile ---- */
+  @media (max-width:640px) {
+    header { padding:10px 12px; gap:10px; }
+    header h1 { font-size:15px; }
+    .bar { padding:10px 12px; gap:7px; }
+    main { padding:12px; gap:12px; grid-template-columns:1fr; }
+    button { padding:9px 13px; }
+    button.toggle { padding:8px 15px; }
+    .cfg { grid-template-columns:1fr; gap:6px 0; }
+    .cfg label { margin-top:10px; font-weight:600; color:var(--fg); }
+    .cfg h3 { margin-top:18px; }
+    #cfgFields { padding:18px 16px 4px; }
+    .row-end { padding:14px 16px; }
+    .term { height:clamp(220px,52vh,560px); }
+  }
+</style>
 </head>
 <body>
 <header>

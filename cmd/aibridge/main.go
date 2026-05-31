@@ -122,7 +122,7 @@ func runHeadless(cfg config.Config, tmpl promptlib.Template) error {
 		}
 	}()
 
-	if err := run.Start(cfg, tmpl); err != nil {
+	if err := run.Start(cfg, tmpl, runner.ResumeSet{}); err != nil {
 		return err
 	}
 	<-done

@@ -249,6 +249,10 @@
   <span style="color:var(--muted)" data-i18n="drive" data-i18n-title="ttDrive"></span>
   <button class="toggle" data-toggle="codex" data-i18n-title="ttToggleCodex">codex</button>
   <button class="toggle" data-toggle="claude" data-i18n-title="ttToggleClaude">claude</button>
+  <span class="sep"></span>
+  <span class="rslab" data-i18n="resumeLabel" data-i18n-title="ttResumeSession"></span>
+  <span class="rsname">codex</span><select id="rscodex" class="rssel" data-i18n-title="ttResumeSession"></select>
+  <span class="rsname">claude</span><select id="rsclaude" class="rssel" data-i18n-title="ttResumeSession"></select>
   <button id="btnTemplates" style="margin-left:auto" data-i18n="templates" data-i18n-title="ttTemplates"></button>
   <button id="btnConfig" data-i18n="config" data-i18n-title="ttConfig"></button>
 </div>
@@ -323,6 +327,8 @@ const I18N = {
     ttToggleClaude: "Toggle whether claude takes turns",
     ttConfig: "Edit run settings (agents, strategy, timeouts, language)",
     templates: "✎ Prompts", ttTemplates: "Manage prompt templates (separate from settings)",
+    resumeLabel: "Session:", ttResumeSession: "Continue a previous CLI session for this agent (memory), or start fresh",
+    resumeFresh: "fresh session", resumeLast: "most recent",
     ttSkip: "Make this agent skip its next turn once",
     ttSend: "Send the typed message into this agent before its next turn",
     cfgGeneral: "General", cfgRepo: "Repo path", cfgUILang: "Agent / report language",
@@ -353,6 +359,8 @@ const I18N = {
     ttToggleClaude: "切换 claude 是否参与轮次",
     ttConfig: "编辑运行设置(AI、策略、超时、语言)",
     templates: "✎ 提示词", ttTemplates: "管理提示词模板(与设置分开)",
+    resumeLabel: "会话:", ttResumeSession: "让该 AI 继续上一次的 CLI 会话(带记忆),或开全新会话",
+    resumeFresh: "全新会话", resumeLast: "最近一次",
     ttSkip: "让这个 AI 跳过它的下一轮",
     ttSend: "在这个 AI 下一轮前注入输入框里的消息",
     cfgGeneral: "通用", cfgRepo: "仓库路径", cfgUILang: "AI / 报告语言",
@@ -384,6 +392,7 @@ $("uiLang").onchange = (e) => {
   localStorage.setItem("aibridge.uilang", UILANG);
   applyI18n();
   if (CFG && $("cfgDialog").open) renderConfig(CFG);
+  populateAllSessions(); // rebuild option labels in the new language
 };
 
 async function api(path, method = "GET", body) {
@@ -467,8 +476,8 @@ function handleEvent(e) {
       if (v) { v.textContent = e.verdict; v.className = "v " + e.verdict; }
       addTimeline(e); break;
     }
-    case "converged": setRunning(false); setStatus("converged", "done"); closeTerminals(); addTimeline(e); banner(t("converged"), true); break;
-    case "stopped": setRunning(false); setStatus("stopped", "done"); closeTerminals(); addTimeline(e); break;
+    case "converged": setRunning(false); setStatus("converged", "done"); closeTerminals(); addTimeline(e); banner(t("converged"), true); populateAllSessions(); break;
+    case "stopped": setRunning(false); setStatus("stopped", "done"); closeTerminals(); addTimeline(e); populateAllSessions(); break;
     default: addTimeline(e);
   }
 }
@@ -561,7 +570,8 @@ function setRunning(r) {
   $("btnResume").disabled = !r;
   document.querySelectorAll("[data-skip],[data-inject]").forEach((b) => (b.disabled = !r));
   document.querySelectorAll("#icodex,#iclaude").forEach((i) => (i.disabled = !r));
-  // drive toggles stay usable always (you can pre-pick sides before Start)
+  // session pickers can't change mid-run; drive toggles stay usable always.
+  document.querySelectorAll(".rssel").forEach((s) => (s.disabled = r));
 }
 
 function renderDrive() {
@@ -591,7 +601,42 @@ document.querySelectorAll("[data-toggle]").forEach((b) =>
     pushDrive();
   }));
 
-$("btnStart").onclick = async () => { try { await api("/api/start", "POST"); setRunning(true); } catch (e) { banner(e.message, false); } };
+// ---- resume / session memory ----
+// Each agent has one <select> that combines the toggle and the picker:
+//   ""        -> fresh session (resume off)
+//   "__last__"-> resume the most recent session for this repo
+//   <id>      -> resume that specific session
+function resumeChoice(side) {
+  const v = ($("rs" + side) || {}).value || "";
+  if (v === "") return { resume: false, session: "" };
+  if (v === "__last__") return { resume: true, session: "" };
+  return { resume: true, session: v };
+}
+
+async function populateSessions(side) {
+  const sel = $("rs" + side);
+  if (!sel) return;
+  const prev = sel.value;
+  let list = [];
+  try { list = (await api("/api/sessions?side=" + side)).sessions || []; } catch {}
+  const opts = [
+    `<option value="">${esc(t("resumeFresh"))}</option>`,
+    `<option value="__last__">${esc(t("resumeLast"))}</option>`,
+    ...list.map((s) => `<option value="${esc(s.id)}">${esc(s.label || s.id)}</option>`),
+  ];
+  sel.innerHTML = opts.join("");
+  // keep the prior selection if it still exists
+  if (prev && [...sel.options].some((o) => o.value === prev)) sel.value = prev;
+}
+
+function populateAllSessions() { populateSessions("codex"); populateSessions("claude"); }
+
+$("btnStart").onclick = async () => {
+  try {
+    await api("/api/start", "POST", { codex: resumeChoice("codex"), claude: resumeChoice("claude") });
+    setRunning(true);
+  } catch (e) { banner(e.message, false); }
+};
 $("btnStop").onclick = () => api("/api/stop", "POST");
 $("btnPause").onclick = () => api("/api/control", "POST", { action: "pause" });
 $("btnResume").onclick = () => api("/api/control", "POST", { action: "resume" });
@@ -801,6 +846,7 @@ $("cfgForm").addEventListener("submit", async (e) => {
     CFG = await api("/api/config");
     showStrategyLine(CFG);
   } catch {}
+  populateAllSessions();
   // syncRunState reconciles drive/running/terminals with the server; connect()
   // also calls it on every (re)connect, so a live run is always reflected.
   await syncRunState();

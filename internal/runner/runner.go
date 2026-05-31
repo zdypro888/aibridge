@@ -8,6 +8,7 @@ package runner
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 
 	"aibridge/internal/agent"
@@ -16,6 +17,54 @@ import (
 	"aibridge/internal/gitx"
 	"aibridge/internal/promptlib"
 )
+
+// Resume controls whether one agent continues a previous CLI session instead of
+// starting fresh. SessionID empty + Enabled true means "the most recent session
+// for this repo".
+type Resume struct {
+	Enabled   bool
+	SessionID string
+}
+
+// ResumeSet carries per-agent resume choices for a run.
+type ResumeSet struct {
+	Codex  Resume
+	Claude Resume
+}
+
+// applyResume rewrites an agent launch command so it continues a prior session.
+// The two CLIs differ: claude takes a flag (--resume <id> / --continue), codex
+// uses a subcommand inserted right after the binary (resume <id> / resume
+// --last). A disabled resume returns the command unchanged.
+func applyResume(side, command string, r Resume) string {
+	if !r.Enabled {
+		return command
+	}
+	switch side {
+	case "claude":
+		if r.SessionID != "" {
+			return command + " --resume " + shellQuote(r.SessionID)
+		}
+		return command + " --continue"
+	case "codex":
+		first, rest, _ := strings.Cut(strings.TrimSpace(command), " ")
+		sub := "resume --last"
+		if r.SessionID != "" {
+			sub = "resume " + shellQuote(r.SessionID)
+		}
+		if strings.TrimSpace(rest) != "" {
+			return first + " " + sub + " " + rest
+		}
+		return first + " " + sub
+	default:
+		return command
+	}
+}
+
+// shellQuote single-quotes a value for safe inclusion in the `sh -c` command.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
 
 // terminalCols/Rows is the initial pty/emulator size; the browser resizes it to
 // fit its panel once xterm has measured itself.
@@ -77,7 +126,7 @@ func (r *Runner) LastOutcome() *bridge.Outcome {
 // Start validates the config and launches a run in the background using the
 // given prompt template. It returns an error synchronously for setup failures
 // (bad config, not a repo, agent launch).
-func (r *Runner) Start(cfg config.Config, tmpl promptlib.Template) error {
+func (r *Runner) Start(cfg config.Config, tmpl promptlib.Template, resume ResumeSet) error {
 	r.mu.Lock()
 	if r.running {
 		r.mu.Unlock()
@@ -102,7 +151,7 @@ func (r *Runner) Start(cfg config.Config, tmpl promptlib.Template) error {
 		return fmt.Errorf("%s is not a git work tree", cfg.Repo)
 	}
 
-	codexDrv, claudeDrv, agents, cleanup, err := r.buildDrivers(cfg, tmpl)
+	codexDrv, claudeDrv, agents, cleanup, err := r.buildDrivers(cfg, tmpl, resume)
 	if err != nil {
 		clearRunning()
 		return err
@@ -157,7 +206,7 @@ func (r *Runner) Stop() {
 // buildDrivers launches a pty-backed agent for each enabled side and wires
 // drivers. A disabled agent gets a no-op driver so the loop's alternation still
 // works (its turns are skipped via a clean, no-change review).
-func (r *Runner) buildDrivers(cfg config.Config, tmpl promptlib.Template) (codex, claude bridge.Driver, agents map[string]*agent.Agent, cleanup func(), err error) {
+func (r *Runner) buildDrivers(cfg config.Config, tmpl promptlib.Template, resume ResumeSet) (codex, claude bridge.Driver, agents map[string]*agent.Agent, cleanup func(), err error) {
 	agents = map[string]*agent.Agent{}
 	cleanup = func() {
 		for _, a := range agents {
@@ -177,8 +226,13 @@ func (r *Runner) buildDrivers(cfg config.Config, tmpl promptlib.Template) (codex
 		if perr != nil {
 			return nil, fmt.Errorf("%s prompt template: %w", side, perr)
 		}
+		res := resume.Codex
+		if side == "claude" {
+			res = resume.Claude
+		}
+		command := applyResume(side, ac.Command, res)
 		ag := agent.New(side)
-		if serr := ag.Start(cfg.Repo, ac.Command, terminalCols, terminalRows); serr != nil {
+		if serr := ag.Start(cfg.Repo, command, terminalCols, terminalRows); serr != nil {
 			return nil, fmt.Errorf("start %s: %w", side, serr)
 		}
 		agents[side] = ag

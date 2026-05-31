@@ -15,6 +15,7 @@ import (
 	"aibridge/internal/config"
 	"aibridge/internal/promptlib"
 	"aibridge/internal/runner"
+	"aibridge/internal/sessions"
 )
 
 //go:embed web
@@ -46,6 +47,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/config", s.handleConfig)
 	mux.HandleFunc("/api/templates", s.handleTemplates)
 	mux.HandleFunc("/api/defaults", s.handleDefaults)
+	mux.HandleFunc("/api/sessions", s.handleSessions)
 	mux.HandleFunc("/api/start", s.handleStart)
 	mux.HandleFunc("/api/stop", s.handleStop)
 	mux.HandleFunc("/api/control", s.handleControl)
@@ -93,11 +95,29 @@ func (s *Server) handleStart(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
+	// Optional body chooses whether each agent resumes a prior session. An empty
+	// body means "both fresh", so a bare POST still works.
+	var req struct {
+		Codex struct {
+			Resume  bool   `json:"resume"`
+			Session string `json:"session"`
+		} `json:"codex"`
+		Claude struct {
+			Resume  bool   `json:"resume"`
+			Session string `json:"session"`
+		} `json:"claude"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req) // tolerate empty/no body
+
 	s.mu.Lock()
 	cfg := s.cfg
 	tmpl := s.lib.ActiveTemplate()
 	s.mu.Unlock()
-	if err := s.run.Start(cfg, tmpl); err != nil {
+	resume := runner.ResumeSet{
+		Codex:  runner.Resume{Enabled: req.Codex.Resume, SessionID: req.Codex.Session},
+		Claude: runner.Resume{Enabled: req.Claude.Resume, SessionID: req.Claude.Session},
+	}
+	if err := s.run.Start(cfg, tmpl, resume); err != nil {
 		httpErr(w, http.StatusBadRequest, err)
 		return
 	}
@@ -139,6 +159,27 @@ func (s *Server) handleTemplates(w http.ResponseWriter, r *http.Request) {
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
+}
+
+// handleSessions lists the resumable prior sessions for one agent in the current
+// repo, most-recent first, so the dashboard can offer a "continue" picker.
+//
+//	GET /api/sessions?side=codex|claude
+func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
+	side := r.URL.Query().Get("side")
+	if !validSide(side) {
+		httpErr(w, http.StatusBadRequest, fmt.Errorf("side must be codex or claude"))
+		return
+	}
+	s.mu.Lock()
+	repo := s.cfg.Repo
+	s.mu.Unlock()
+	list, err := sessions.List(side, repo)
+	if err != nil {
+		// Don't fail the UI over a transcript read error; return an empty list.
+		list = nil
+	}
+	writeJSON(w, map[string]any{"sessions": list})
 }
 
 func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {

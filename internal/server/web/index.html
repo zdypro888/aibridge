@@ -1,0 +1,555 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>aibridge</title>
+<link rel="stylesheet" href="/vendor/xterm.css" />
+<script src="/vendor/xterm.js"></script>
+<script src="/vendor/addon-fit.js"></script>
+<style>
+  :root { --bg:#0d1117; --panel:#161b22; --border:#30363d; --fg:#c9d1d9; --muted:#8b949e;
+          --accent:#58a6ff; --good:#3fb950; --warn:#d29922; --bad:#f85149; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; background:var(--bg); color:var(--fg); }
+  header { display:flex; align-items:center; gap:12px; padding:10px 16px; border-bottom:1px solid var(--border); background:var(--panel); }
+  header h1 { font-size:15px; margin:0; }
+  header .status { margin-left:auto; display:flex; align-items:center; gap:8px; }
+  .dot { width:9px; height:9px; border-radius:50%; background:var(--muted); }
+  .dot.run { background:var(--good); animation:pulse 1.2s infinite; }
+  .dot.done { background:var(--accent); }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+  button { font:inherit; background:#21262d; color:var(--fg); border:1px solid var(--border); border-radius:6px; padding:5px 10px; cursor:pointer; }
+  button:hover { border-color:var(--accent); }
+  button.primary { background:var(--accent); color:#0d1117; border-color:var(--accent); font-weight:600; }
+  button.danger { color:var(--bad); }
+  select.lang { background:#21262d; color:var(--fg); border:1px solid var(--border); border-radius:6px; padding:4px 6px; font:inherit; }
+  button:disabled { opacity:.4; cursor:not-allowed; }
+  button:disabled:hover { border-color:var(--border); }
+  button.toggle.on { background:var(--accent); color:#0d1117; border-color:var(--accent); font-weight:600; }
+  .bar { display:flex; gap:8px; padding:10px 16px; flex-wrap:wrap; align-items:center; border-bottom:1px solid var(--border); }
+  .sep { width:1px; align-self:stretch; background:var(--border); margin:0 4px; }
+  /* Responsive: two columns when there's room, auto-collapse to one when narrow.
+     minmax(360px,1fr) means each panel needs >=360px or the grid drops to a
+     single column — no media query needed for the main split. */
+  main { display:grid; grid-template-columns:repeat(auto-fit, minmax(360px, 1fr)); gap:10px; padding:12px 16px; }
+  .panel { background:var(--panel); border:1px solid var(--border); border-radius:8px; display:flex; flex-direction:column; min-width:0; }
+  .panel h2 { margin:0; padding:8px 12px; font-size:13px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:8px; }
+  .panel h2 .v { margin-left:auto; font-size:11px; padding:1px 7px; border-radius:10px; background:#21262d; color:var(--muted); }
+  .v.CLEAN{color:var(--good)} .v.FIXED{color:var(--warn)} .v.ISSUES{color:var(--bad)} .v.UNKNOWN{color:var(--muted)}
+  /* screen height scales with viewport; clamp keeps it usable on short and tall screens */
+  .screen { flex:1; margin:0; padding:10px 12px; overflow:auto; white-space:pre-wrap; word-break:break-word; font-size:12px; color:#aeb6bf; max-height:clamp(180px, 42vh, 600px); }
+  /* live terminal: FIXED height so the panel never grows with output; xterm's own
+     viewport handles scrolling inside this box. height (not flex/min-height) +
+     overflow:hidden is what pins the window — min-height let the panel stretch
+     with content. xterm fits its grid to this box via FitAddon. */
+  .term { height:clamp(240px, 60vh, 680px); padding:4px 6px; overflow:hidden; }
+  .term-empty { flex:1; display:flex; align-items:center; justify-content:center; color:var(--muted); min-height:200px; }
+  .panel .ctl { display:flex; gap:6px; padding:8px 12px; border-top:1px solid var(--border); flex-wrap:wrap; }
+  .panel .ctl input { flex:1; min-width:0; background:#0d1117; color:var(--fg); border:1px solid var(--border); border-radius:6px; padding:4px 8px; font:inherit; }
+  section.wide { padding:0 16px 16px; }
+  .timeline { background:var(--panel); border:1px solid var(--border); border-radius:8px; max-height:24vh; overflow:auto; padding:8px 12px; }
+  .ev { padding:2px 0; color:var(--muted); }
+  .ev b { color:var(--fg); }
+  .ev .k { display:inline-block; min-width:118px; color:var(--accent); }
+  dialog { background:var(--panel); color:var(--fg); border:1px solid var(--border); border-radius:10px; width:min(680px,92vw); max-height:86vh; overflow:auto; }
+  dialog::backdrop { background:rgba(0,0,0,.6); }
+  .cfg { display:grid; grid-template-columns:170px 1fr; gap:8px 12px; align-items:center; }
+  .cfg h3 { grid-column:1/-1; margin:14px 0 2px; font-size:13px; color:var(--accent); border-bottom:1px solid var(--border); padding-bottom:4px; }
+  .cfg label { color:var(--muted); }
+  .cfg input,.cfg select,.cfg textarea { background:#0d1117; color:var(--fg); border:1px solid var(--border); border-radius:6px; padding:5px 8px; font:inherit; width:100%; }
+  .cfg textarea { min-height:54px; resize:vertical; }
+  .row-end { display:flex; gap:8px; justify-content:flex-end; margin-top:14px; }
+  .banner { margin:12px 16px 0; padding:10px 12px; border-radius:8px; display:none; }
+  .banner.show { display:block; }
+  .banner.good { background:#10301a; color:var(--good); border:1px solid var(--good); }
+  .banner.bad  { background:#3a1414; color:var(--bad); border:1px solid var(--bad); }
+
+  /* Narrow screens (phones / split panes): tighten chrome and stack the config
+     editor's label/control pairs vertically so nothing overflows. */
+  @media (max-width: 600px) {
+    body { font-size:12px; }
+    header { flex-wrap:wrap; gap:8px; padding:8px 10px; }
+    header .status { margin-left:0; }
+    #strategy { width:100%; order:3; }
+    .bar { padding:8px 10px; gap:6px; }
+    .sep { display:none; }
+    main { padding:8px 10px; gap:8px; }
+    section.wide { padding:0 10px 10px; }
+    .banner { margin:8px 10px 0; }
+    .cfg { grid-template-columns:1fr; gap:4px 0; }
+    .cfg label { margin-top:8px; }
+    .cfg h3 { margin-top:10px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>🌉 aibridge</h1>
+  <span class="muted" id="strategy"></span>
+  <div class="status">
+    <select class="lang" id="uiLang" title="UI language">
+      <option value="en">English</option>
+      <option value="zh">中文</option>
+    </select>
+    <span class="dot" id="dot"></span>
+    <span id="statusText"></span>
+  </div>
+</header>
+
+<div class="bar">
+  <button class="primary" id="btnStart" data-i18n="start" data-i18n-title="ttStart"></button>
+  <button class="danger" id="btnStop" data-i18n="stop" data-i18n-title="ttStop"></button>
+  <button id="btnPause" data-i18n="pause" data-i18n-title="ttPause"></button>
+  <button id="btnResume" data-i18n="resume" data-i18n-title="ttResume"></button>
+  <span class="sep"></span>
+  <span style="color:var(--muted)" data-i18n="drive" data-i18n-title="ttDrive"></span>
+  <button class="toggle" data-toggle="codex" data-i18n-title="ttToggleCodex">codex</button>
+  <button class="toggle" data-toggle="claude" data-i18n-title="ttToggleClaude">claude</button>
+  <button id="btnConfig" style="margin-left:auto" data-i18n="config" data-i18n-title="ttConfig"></button>
+</div>
+
+<div class="banner" id="banner"></div>
+
+<main>
+  <div class="panel">
+    <h2>codex <span class="v UNKNOWN" id="vcodex">—</span></h2>
+    <div class="term-empty" id="ecodex" data-i18n="notStarted"></div>
+    <div class="term" id="tcodex" style="display:none"></div>
+    <div class="ctl">
+      <button data-skip="codex" data-i18n="skipNext" data-i18n-title="ttSkip"></button>
+      <input id="icodex" data-i18n-ph="injectCodex" />
+      <button data-inject="codex" data-i18n="send" data-i18n-title="ttSend"></button>
+    </div>
+  </div>
+  <div class="panel">
+    <h2>claude <span class="v UNKNOWN" id="vclaude">—</span></h2>
+    <div class="term-empty" id="eclaude" data-i18n="notStarted"></div>
+    <div class="term" id="tclaude" style="display:none"></div>
+    <div class="ctl">
+      <button data-skip="claude" data-i18n="skipNext" data-i18n-title="ttSkip"></button>
+      <input id="iclaude" data-i18n-ph="injectClaude" />
+      <button data-inject="claude" data-i18n="send" data-i18n-title="ttSend"></button>
+    </div>
+  </div>
+</main>
+
+<section class="wide">
+  <div class="timeline" id="timeline"></div>
+</section>
+
+<dialog id="cfgDialog">
+  <form id="cfgForm" method="dialog">
+    <div class="cfg" id="cfgFields"></div>
+    <div class="row-end">
+      <button value="cancel" data-i18n="cancel"></button>
+      <button class="primary" id="cfgSave" value="save" data-i18n="save"></button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let CFG = null;
+
+// ---- i18n ----
+const I18N = {
+  en: {
+    start: "▶ Start", stop: "■ Stop", pause: "⏸ Pause", resume: "⏵ Resume",
+    drive: "drive:", config: "⚙ Config", skipNext: "skip next", send: "send",
+    injectCodex: "inject message to codex…", injectClaude: "inject message to claude…",
+    notStarted: "(not started — press ▶ Start)", cancel: "Cancel", save: "Save",
+    idle: "idle", running: "running", converged: "✓ converged — both clean", stopped: "stopped",
+    ttStart: "Launch both agents and begin the review loop",
+    ttStop: "Abort the current run and tear down the agents",
+    ttPause: "Pause the loop at the next turn boundary",
+    ttResume: "Resume a paused loop",
+    ttDrive: "Choose which agents take turns. Lit = active. At least one must stay lit.",
+    ttToggleCodex: "Toggle whether codex takes turns",
+    ttToggleClaude: "Toggle whether claude takes turns",
+    ttConfig: "Edit all settings (prompts, strategy, timeouts, language)",
+    ttSkip: "Make this agent skip its next turn once",
+    ttSend: "Send the typed message into this agent before its next turn",
+    cfgGeneral: "General", cfgRepo: "Repo path", cfgUILang: "Agent / report language",
+    cfgAddr: "Web addr", cfgFlow: "Flow", cfgFirst: "First reviewer",
+    cfgMaxRounds: "Max rounds", cfgStrategy: "Convergence strategy", cfgAskPrompt: "Ask prompt (optional)",
+    cfgEnabled: "Enabled", cfgCommand: "Command", cfgStable: "Stable for", cfgSettle: "Settle for",
+    cfgTimeout: "Timeout", cfgPromptFirst: "Prompt: first turn", cfgPromptNext: "Prompt: next turns",
+    saved: "Config saved",
+  },
+  zh: {
+    start: "▶ 开始", stop: "■ 停止", pause: "⏸ 暂停", resume: "⏵ 继续",
+    drive: "驱动:", config: "⚙ 配置", skipNext: "跳过下一轮", send: "发送",
+    injectCodex: "给 codex 注入一句话…", injectClaude: "给 claude 注入一句话…",
+    notStarted: "(未开始 — 点 ▶ 开始)", cancel: "取消", save: "保存",
+    idle: "空闲", running: "运行中", converged: "✓ 已收敛 — 双方都干净", stopped: "已停止",
+    ttStart: "启动两个 AI 并开始互审循环",
+    ttStop: "中止当前运行并关闭两个 AI",
+    ttPause: "在下一轮边界暂停循环",
+    ttResume: "继续已暂停的循环",
+    ttDrive: "选择哪些 AI 参与。高亮=参与。至少保留一个高亮。",
+    ttToggleCodex: "切换 codex 是否参与轮次",
+    ttToggleClaude: "切换 claude 是否参与轮次",
+    ttConfig: "编辑全部设置(提示词、策略、超时、语言)",
+    ttSkip: "让这个 AI 跳过它的下一轮",
+    ttSend: "在这个 AI 下一轮前注入输入框里的消息",
+    cfgGeneral: "通用", cfgRepo: "仓库路径", cfgUILang: "AI / 报告语言",
+    cfgAddr: "Web 地址", cfgFlow: "流程", cfgFirst: "谁先审",
+    cfgMaxRounds: "最大轮次", cfgStrategy: "收敛策略", cfgAskPrompt: "追问提示词(可选)",
+    cfgEnabled: "启用", cfgCommand: "启动命令", cfgStable: "稳定判定", cfgSettle: "等待启动",
+    cfgTimeout: "超时", cfgPromptFirst: "提示词: 首轮", cfgPromptNext: "提示词: 后续轮",
+    saved: "配置已保存",
+  },
+};
+let UILANG = localStorage.getItem("aibridge.uilang") || "zh";
+function t(key) { return (I18N[UILANG] && I18N[UILANG][key]) || I18N.en[key] || key; }
+function applyI18n() {
+  document.documentElement.lang = UILANG;
+  document.querySelectorAll("[data-i18n]").forEach((el) => (el.textContent = t(el.dataset.i18n)));
+  document.querySelectorAll("[data-i18n-ph]").forEach((el) => (el.placeholder = t(el.dataset.i18nPh)));
+  document.querySelectorAll("[data-i18n-title]").forEach((el) => (el.title = t(el.dataset.i18nTitle)));
+  if (!statusKey) setStatus("idle");
+  else setStatus(statusKey, statusCls, statusExtra);
+}
+$("uiLang").onchange = (e) => {
+  UILANG = e.target.value;
+  localStorage.setItem("aibridge.uilang", UILANG);
+  applyI18n();
+  if (CFG && $("cfgDialog").open) renderConfig(CFG);
+};
+
+async function api(path, method = "GET", body) {
+  const opt = { method, headers: { "Content-Type": "application/json" } };
+  if (body) opt.body = JSON.stringify(body);
+  const r = await fetch(path, opt);
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+
+function banner(msg, ok) {
+  const b = $("banner");
+  b.textContent = msg;
+  b.className = "banner show " + (ok ? "good" : "bad");
+  setTimeout(() => (b.className = "banner"), 4000);
+}
+
+// ---- status (i18n-aware, remembers key so language switch re-renders) ----
+let statusKey = "", statusCls = "", statusExtra = "";
+function setStatus(key, cls, extra) {
+  statusKey = key; statusCls = cls || ""; statusExtra = extra || "";
+  $("statusText").textContent = t(key) + (extra ? " · " + extra : "");
+  $("dot").className = "dot " + (cls || "");
+}
+
+// ---- live event stream (SSE) ----
+function connect() {
+  const es = new EventSource("/api/events");
+  es.onmessage = (m) => { try { handleEvent(JSON.parse(m.data)); } catch {} };
+  // On every (re)connect, re-sync run state from the server so the dashboard can
+  // never get stuck on "not started" while a run is actually live (page opened
+  // after run_started, or SSE dropped and reconnected). openTerminal() is
+  // idempotent, so re-opening is safe.
+  es.onopen = () => { syncRunState(); };
+  es.onerror = () => { es.close(); setTimeout(connect, 1000); };
+}
+
+// syncRunState reconciles the UI (drive toggles, running flag, terminals) with
+// the server's actual state. Called on first load and every SSE (re)connect.
+async function syncRunState() {
+  const st = await api("/api/status").catch(() => null);
+  if (!st) return;
+  const only = st.control && st.control.onlySide;
+  active = { codex: only !== "claude", claude: only !== "codex" };
+  renderDrive();
+  setRunning(!!st.running);
+  if (st.running) { setStatus("running", "run"); openTerminals(); }
+}
+
+function addTimeline(e) {
+  const tl = $("timeline");
+  const div = document.createElement("div");
+  div.className = "ev";
+  const ts = new Date(e.time || Date.now()).toLocaleTimeString();
+  let detail = e.message || "";
+  if (e.verdict) detail = `[${e.verdict}] ${detail}`;
+  const kind = document.createElement("span");
+  kind.className = "k";
+  kind.textContent = e.kind || "";
+  const side = document.createElement("b");
+  side.textContent = e.side || "";
+  const time = document.createElement("span");
+  time.style.cssText = "float:right;color:#586069";
+  time.textContent = ts;
+  div.append(kind, " ", side, " ", detail, " ", time);
+  tl.appendChild(div);
+  tl.scrollTop = tl.scrollHeight;
+}
+
+function handleEvent(e) {
+  switch (e.kind) {
+    // Live output now comes through the xterm websocket (real terminal), so the
+    // "screen" SSE events are no longer used for display. run_started opens the
+    // terminals; stop/converged closes them.
+    case "run_started": setRunning(true); setStatus("running", "run"); openTerminals(); addTimeline(e); break;
+    case "screen": break;
+    case "turn_started": setStatus("running", "run", `${e.side} #${e.round}`); addTimeline(e); break;
+    case "turn_finished": {
+      const v = $(e.side === "codex" ? "vcodex" : "vclaude");
+      if (v) { v.textContent = e.verdict; v.className = "v " + e.verdict; }
+      addTimeline(e); break;
+    }
+    case "converged": setRunning(false); setStatus("converged", "done"); closeTerminals(); addTimeline(e); banner(t("converged"), true); break;
+    case "stopped": setRunning(false); setStatus("stopped", "done"); closeTerminals(); addTimeline(e); break;
+    default: addTimeline(e);
+  }
+}
+
+// ---- live terminals: xterm.js rendering each agent's raw pty byte stream ----
+const TERM = {}; // side -> { term, fit, ws }
+
+function openTerminal(side) {
+  if (TERM[side]) return; // already open
+  const host = $("t" + side);
+  const empty = $("e" + side);
+  empty.style.display = "none";
+  host.style.display = "block";
+
+  // The terminal renders the agent's raw pty byte stream. FitAddon sizes the
+  // grid to the panel so nothing is cut off; we tell the server the fitted size
+  // so the pty/emulator match (no wrap, no blank columns).
+  const term = new Terminal({
+    convertEol: false,
+    fontFamily: "ui-monospace,SFMono-Regular,Menlo,monospace",
+    fontSize: 11,
+    theme: { background: "#161b22", foreground: "#c9d1d9" },
+    scrollback: 2000,
+  });
+  const fit = new FitAddon.FitAddon();
+  term.loadAddon(fit);
+  term.open(host);
+  try { fit.fit(); } catch {}
+
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  const ws = new WebSocket(`${proto}://${location.host}/ws/terminal?side=${side}`);
+  ws.binaryType = "arraybuffer"; // server sends raw pty bytes as binary frames
+
+  const sendResize = () => {
+    try { fit.fit(); } catch {}
+    if (ws.readyState === 1) ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
+  };
+  const send = (s) => { if (ws.readyState === 1) ws.send(s); };
+  // Announce focus once on connect (DECSET 1004 focus-in, ESC [ I): Claude Code
+  // gates keyboard input on having seen a focus event, and our pty has no real
+  // terminal. NOTE: this xterm build has no term.onFocus/onBlur — calling them
+  // throws and aborts openTerminal (which is exactly what left the claude panel
+  // blank). Sending once on open is enough; do not hook focus/blur events.
+  ws.onopen = () => { sendResize(); term.focus(); send("\x1b[I"); };
+  ws.onmessage = (ev) => {
+    // Binary frames (the normal path) arrive as ArrayBuffer; text frames as string.
+    if (typeof ev.data === "string") term.write(ev.data);
+    else term.write(new Uint8Array(ev.data));
+  };
+  ws.onclose = () => { /* keep last frame; closeTerminals handles teardown */ };
+  // keystrokes (including "/", arrows, Ctrl-*) → the agent's pty
+  term.onData((d) => { send(d); });
+
+  TERM[side] = { term, fit, ws, sendResize };
+}
+
+function openTerminals() {
+  if (active.codex) openTerminal("codex");
+  if (active.claude) openTerminal("claude");
+}
+
+function closeTerminals() {
+  for (const side of Object.keys(TERM)) {
+    try { TERM[side].ws.close(); } catch {}
+    try { TERM[side].term.dispose(); } catch {}
+    const host = $("t" + side), empty = $("e" + side);
+    if (host) host.style.display = "none";
+    if (empty) empty.style.display = "flex";
+    delete TERM[side];
+  }
+}
+
+// Refit terminals to their panels when the window resizes.
+window.addEventListener("resize", () => {
+  for (const side of Object.keys(TERM)) TERM[side].sendResize();
+});
+
+// ---- run state → enable/disable buttons ----
+// running=false: only Start + Config + drive toggles + (config) usable; Stop/Pause/
+// Resume/skip/inject are meaningless and get disabled so the UI can't lie.
+let RUNNING = false;
+// drive toggles: which sides are active. Derived from server's onlySide.
+let active = { codex: true, claude: true };
+
+function setRunning(r) {
+  RUNNING = r;
+  $("btnStart").disabled = r;
+  $("btnStop").disabled = !r;
+  $("btnPause").disabled = !r;
+  $("btnResume").disabled = !r;
+  document.querySelectorAll("[data-skip],[data-inject]").forEach((b) => (b.disabled = !r));
+  document.querySelectorAll("#icodex,#iclaude").forEach((i) => (i.disabled = !r));
+  // drive toggles stay usable always (you can pre-pick sides before Start)
+}
+
+function renderDrive() {
+  document.querySelectorAll("[data-toggle]").forEach((b) =>
+    b.classList.toggle("on", active[b.dataset.toggle]));
+}
+
+// Map the two toggles to the server's onlySide model:
+//   both on  → onlySide ""        (no restriction)
+//   codex on → onlySide "codex"   (only codex runs)
+//   claude on→ onlySide "claude"
+function pushDrive() {
+  let side = "";
+  if (active.codex && !active.claude) side = "codex";
+  else if (active.claude && !active.codex) side = "claude";
+  api("/api/control", "POST", { action: "only", side });
+}
+
+document.querySelectorAll("[data-toggle]").forEach((b) =>
+  (b.onclick = () => {
+    const s = b.dataset.toggle;
+    const other = s === "codex" ? "claude" : "codex";
+    // Don't allow turning the last one off.
+    if (active[s] && !active[other]) { banner(t("ttDrive"), false); return; }
+    active[s] = !active[s];
+    renderDrive();
+    pushDrive();
+  }));
+
+$("btnStart").onclick = async () => { try { await api("/api/start", "POST"); setRunning(true); } catch (e) { banner(e.message, false); } };
+$("btnStop").onclick = () => api("/api/stop", "POST");
+$("btnPause").onclick = () => api("/api/control", "POST", { action: "pause" });
+$("btnResume").onclick = () => api("/api/control", "POST", { action: "resume" });
+document.querySelectorAll("[data-skip]").forEach((b) =>
+  (b.onclick = () => api("/api/control", "POST", { action: "skip", side: b.dataset.skip })));
+document.querySelectorAll("[data-inject]").forEach((b) =>
+  (b.onclick = () => {
+    const side = b.dataset.inject;
+    const inp = $(side === "codex" ? "icodex" : "iclaude");
+    if (inp.value) { api("/api/control", "POST", { action: "inject", side, text: inp.value }); inp.value = ""; }
+  }));
+
+// ---- config editor ----
+function esc(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function field(label, key, value, type = "text") {
+  return `<label>${label}</label>${
+    type === "textarea"
+      ? `<textarea data-key="${esc(key)}">${esc(value)}</textarea>`
+      : `<input data-key="${esc(key)}" value="${esc(value)}" />`
+  }`;
+}
+function selectField(label, key, value, opts) {
+  return `<label>${label}</label><select data-key="${esc(key)}">${opts
+    .map((o) => `<option ${o === value ? "selected" : ""}>${esc(o)}</option>`)
+    .join("")}</select>`;
+}
+function boolField(label, key, value) {
+  return `<label>${label}</label><select data-key="${esc(key)}"><option ${value ? "selected" : ""}>true</option><option ${!value ? "selected" : ""}>false</option></select>`;
+}
+
+function renderConfig(cfg) {
+  const a = cfg.agents, f = cfg.flow;
+  $("cfgFields").innerHTML = `
+    <h3>${t("cfgGeneral")}</h3>
+    ${field(t("cfgRepo"), "repo", cfg.repo)}
+    ${selectField(t("cfgUILang"), "lang", cfg.lang || "en", ["en", "zh"])}
+    ${field(t("cfgAddr"), "server.addr", cfg.server.addr)}
+    <h3>${t("cfgFlow")}</h3>
+    ${selectField(t("cfgFirst"), "flow.first", f.first, ["codex", "claude"])}
+    ${field(t("cfgMaxRounds"), "flow.max_rounds", f.max_rounds)}
+    ${selectField(t("cfgStrategy"), "flow.strategy", f.strategy, ["combined", "diff-fixpoint", "ask-gate"])}
+    ${field(t("cfgAskPrompt"), "flow.ask_prompt", f.ask_prompt || "", "textarea")}
+    <h3>Codex</h3>
+    ${boolField(t("cfgEnabled"), "agents.codex.enabled", a.codex.enabled)}
+    ${field(t("cfgCommand"), "agents.codex.command", a.codex.command)}
+    ${field(t("cfgStable"), "agents.codex.stable_for", a.codex.stable_for)}
+    ${field(t("cfgSettle"), "agents.codex.settle_for", a.codex.settle_for)}
+    ${field(t("cfgTimeout"), "agents.codex.timeout", a.codex.timeout)}
+    ${field(t("cfgPromptFirst"), "agents.codex.prompt_first", a.codex.prompt_first || "", "textarea")}
+    ${field(t("cfgPromptNext"), "agents.codex.prompt_next", a.codex.prompt_next || "", "textarea")}
+    <h3>Claude</h3>
+    ${boolField(t("cfgEnabled"), "agents.claude.enabled", a.claude.enabled)}
+    ${field(t("cfgCommand"), "agents.claude.command", a.claude.command)}
+    ${field(t("cfgStable"), "agents.claude.stable_for", a.claude.stable_for)}
+    ${field(t("cfgSettle"), "agents.claude.settle_for", a.claude.settle_for)}
+    ${field(t("cfgTimeout"), "agents.claude.timeout", a.claude.timeout)}
+    ${field(t("cfgPromptFirst"), "agents.claude.prompt_first", a.claude.prompt_first || "", "textarea")}
+    ${field(t("cfgPromptNext"), "agents.claude.prompt_next", a.claude.prompt_next || "", "textarea")}
+  `;
+}
+
+function setByPath(obj, path, val) {
+  const parts = path.split(".");
+  let o = obj;
+  for (let i = 0; i < parts.length - 1; i++) o = o[parts[i]];
+  o[parts[parts.length - 1]] = val;
+}
+
+function collectConfig() {
+  const cfg = JSON.parse(JSON.stringify(CFG));
+  document.querySelectorAll("[data-key]").forEach((el) => {
+    let v = el.value;
+    const key = el.dataset.key;
+    if (key === "flow.max_rounds") v = parseInt(v, 10);
+    else if (key.endsWith(".enabled")) v = v === "true";
+    setByPath(cfg, key, v);
+  });
+  return cfg;
+}
+
+function showStrategyLine(cfg) {
+  $("strategy").textContent = `${t("cfgStrategy")}: ${cfg.flow.strategy} · ${cfg.flow.first}`;
+}
+
+$("btnConfig").onclick = async () => {
+  CFG = await api("/api/config");
+  showStrategyLine(CFG);
+  renderConfig(CFG);
+  $("cfgDialog").showModal();
+};
+
+$("cfgForm").addEventListener("submit", async (e) => {
+  if (e.submitter && e.submitter.value === "save") {
+    try {
+      const cfg = collectConfig();
+      await api("/api/config", "POST", cfg);
+      CFG = cfg;
+      showStrategyLine(cfg);
+      banner(t("saved"), true);
+    } catch (err) { banner(err.message, false); }
+  }
+});
+
+// init
+(async () => {
+  $("uiLang").value = UILANG;
+  applyI18n();
+  setStatus("idle");
+  renderDrive();
+  try {
+    CFG = await api("/api/config");
+    showStrategyLine(CFG);
+  } catch {}
+  // syncRunState reconciles drive/running/terminals with the server; connect()
+  // also calls it on every (re)connect, so a live run is always reflected.
+  await syncRunState();
+  connect();
+})();
+</script>
+</body>
+</html>

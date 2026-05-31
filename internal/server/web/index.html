@@ -446,11 +446,12 @@ function esc(value) {
     .replaceAll("'", "&#39;");
 }
 
-function field(label, key, value, type = "text") {
+function field(label, key, value, type = "text", placeholder = "") {
+  const ph = placeholder ? ` placeholder="${esc(placeholder)}"` : "";
   return `<label>${label}</label>${
     type === "textarea"
-      ? `<textarea data-key="${esc(key)}">${esc(value)}</textarea>`
-      : `<input data-key="${esc(key)}" value="${esc(value)}" />`
+      ? `<textarea data-key="${esc(key)}"${ph}>${esc(value)}</textarea>`
+      : `<input data-key="${esc(key)}" value="${esc(value)}"${ph} />`
   }`;
 }
 function selectField(label, key, value, opts) {
@@ -480,17 +481,24 @@ function renderConfig(cfg) {
     ${field(t("cfgStable"), "agents.codex.stable_for", a.codex.stable_for)}
     ${field(t("cfgSettle"), "agents.codex.settle_for", a.codex.settle_for)}
     ${field(t("cfgTimeout"), "agents.codex.timeout", a.codex.timeout)}
-    ${field(t("cfgPromptFirst"), "agents.codex.prompt_first", a.codex.prompt_first || "", "textarea")}
-    ${field(t("cfgPromptNext"), "agents.codex.prompt_next", a.codex.prompt_next || "", "textarea")}
+    ${field(t("cfgPromptFirst"), "agents.codex.prompt_first", a.codex.prompt_first || "", "textarea", DEFAULTS.codex && DEFAULTS.codex.first)}
+    ${field(t("cfgPromptNext"), "agents.codex.prompt_next", a.codex.prompt_next || "", "textarea", DEFAULTS.codex && DEFAULTS.codex.next)}
     <h3>Claude</h3>
     ${boolField(t("cfgEnabled"), "agents.claude.enabled", a.claude.enabled)}
     ${field(t("cfgCommand"), "agents.claude.command", a.claude.command)}
     ${field(t("cfgStable"), "agents.claude.stable_for", a.claude.stable_for)}
     ${field(t("cfgSettle"), "agents.claude.settle_for", a.claude.settle_for)}
     ${field(t("cfgTimeout"), "agents.claude.timeout", a.claude.timeout)}
-    ${field(t("cfgPromptFirst"), "agents.claude.prompt_first", a.claude.prompt_first || "", "textarea")}
-    ${field(t("cfgPromptNext"), "agents.claude.prompt_next", a.claude.prompt_next || "", "textarea")}
+    ${field(t("cfgPromptFirst"), "agents.claude.prompt_first", a.claude.prompt_first || "", "textarea", DEFAULTS.claude && DEFAULTS.claude.first)}
+    ${field(t("cfgPromptNext"), "agents.claude.prompt_next", a.claude.prompt_next || "", "textarea", DEFAULTS.claude && DEFAULTS.claude.next)}
   `;
+}
+
+// DEFAULTS holds the built-in prompt templates for the config's language, shown
+// as textarea placeholders so an empty prompt field reads as "uses this default".
+let DEFAULTS = {};
+async function loadDefaults(lang) {
+  DEFAULTS = (await api("/api/defaults?lang=" + encodeURIComponent(lang || "")).catch(() => ({}))) || {};
 }
 
 function setByPath(obj, path, val) {
@@ -518,9 +526,14 @@ function showStrategyLine(cfg) {
 
 $("btnConfig").onclick = async () => {
   CFG = await api("/api/config");
+  await loadDefaults(CFG.lang);
   showStrategyLine(CFG);
   renderConfig(CFG);
   $("cfgDialog").showModal();
+  // When the language select changes, re-fetch defaults so the prompt
+  // placeholders track the chosen language live.
+  const langSel = document.querySelector('[data-key="lang"]');
+  if (langSel) langSel.onchange = async () => { await loadDefaults(langSel.value); renderConfig(collectConfig()); };
 };
 
 $("cfgForm").addEventListener("submit", async (e) => {

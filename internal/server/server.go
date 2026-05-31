@@ -40,6 +40,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/", http.FileServer(http.FS(sub)))
 
 	mux.HandleFunc("/api/config", s.handleConfig)
+	mux.HandleFunc("/api/defaults", s.handleDefaults)
 	mux.HandleFunc("/api/start", s.handleStart)
 	mux.HandleFunc("/api/stop", s.handleStop)
 	mux.HandleFunc("/api/control", s.handleControl)
@@ -161,6 +162,25 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 
 func validSide(side string) bool {
 	return side == "codex" || side == "claude"
+}
+
+// handleDefaults returns the built-in prompt templates for the given language so
+// the UI can show them as placeholders (an empty per-agent prompt = use these).
+//
+//	GET /api/defaults?lang=zh|en
+func (s *Server) handleDefaults(w http.ResponseWriter, r *http.Request) {
+	lang := r.URL.Query().Get("lang")
+	if lang == "" {
+		s.mu.Lock()
+		lang = s.cfg.Lang
+		s.mu.Unlock()
+	}
+	cf, cn := bridge.DefaultPrompts("codex", lang)
+	lf, ln := bridge.DefaultPrompts("claude", lang)
+	writeJSON(w, map[string]any{
+		"codex":  map[string]string{"first": cf, "next": cn},
+		"claude": map[string]string{"first": lf, "next": ln},
+	})
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {

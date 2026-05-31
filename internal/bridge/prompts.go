@@ -119,6 +119,13 @@ const (
 		`{{.ReplyLang}} {{.Verdict}}{{if .Ask}} {{.AskBlock}}{{end}}`
 )
 
+// DefaultPrompts is the exported view of the built-in (first, next) template for
+// a side+language. The web UI shows these as placeholders so an empty per-agent
+// prompt is understood as "use this default", and the user can copy/edit it.
+func DefaultPrompts(side, lang string) (first, next string) {
+	return defaultPrompts(side, normLang(lang))
+}
+
 // defaultPrompts returns the (first, next) default template for a side+language.
 func defaultPrompts(side string, l Lang) (first, next string) {
 	switch {

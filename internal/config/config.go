@@ -33,15 +33,11 @@ type AgentConfig struct {
 }
 
 // Agent is one reviewer's full configuration.
+// Agent holds one reviewer's runtime settings. Prompt templates live separately
+// in the prompt library (see internal/promptlib) and are NOT part of the config.
 type Agent struct {
 	Enabled bool   `yaml:"enabled" json:"enabled"` // if false, this side is skipped entirely (single-AI mode)
 	Command string `yaml:"command" json:"command"` // shell command to launch the interactive TUI on a PTY
-	// PromptFirst is used when this agent has no handoff yet (reviews fresh
-	// changes). PromptNext is used on subsequent turns and may reference
-	// {{.Handoff}}. Both are Go text/template strings; see prompts.go for the
-	// available fields. Empty means "use the built-in default for this side".
-	PromptFirst string `yaml:"prompt_first" json:"prompt_first"`
-	PromptNext  string `yaml:"prompt_next" json:"prompt_next"`
 
 	// Completion detection (screen-stability heuristic) for this side. Real
 	// high-effort models need a longer StableFor than fast ones.
@@ -59,9 +55,6 @@ type FlowConfig struct {
 	// Pluggable so the flow isn't hard-wired: "diff-fixpoint" | "ask-gate" |
 	// "combined". See bridge/strategy.go.
 	Strategy string `yaml:"strategy" json:"strategy"`
-	// AskPrompt is the question asked in ask-gate/combined strategies. The agent
-	// is told to answer with a NO_MORE_BUGS or MORE_BUGS token. Empty = default.
-	AskPrompt string `yaml:"ask_prompt" json:"ask_prompt"`
 }
 
 // ServerConfig controls the web dashboard.

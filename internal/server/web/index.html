@@ -249,7 +249,8 @@
   <span style="color:var(--muted)" data-i18n="drive" data-i18n-title="ttDrive"></span>
   <button class="toggle" data-toggle="codex" data-i18n-title="ttToggleCodex">codex</button>
   <button class="toggle" data-toggle="claude" data-i18n-title="ttToggleClaude">claude</button>
-  <button id="btnConfig" style="margin-left:auto" data-i18n="config" data-i18n-title="ttConfig"></button>
+  <button id="btnTemplates" style="margin-left:auto" data-i18n="templates" data-i18n-title="ttTemplates"></button>
+  <button id="btnConfig" data-i18n="config" data-i18n-title="ttConfig"></button>
 </div>
 
 <div class="banner" id="banner"></div>
@@ -291,6 +292,16 @@
   </form>
 </dialog>
 
+<dialog id="tmplDialog">
+  <form id="tmplForm" method="dialog">
+    <div class="cfg" id="tmplFields"></div>
+    <div class="row-end">
+      <button value="cancel" data-i18n="cancel"></button>
+      <button class="primary" id="tmplSave" value="save" data-i18n="save"></button>
+    </div>
+  </form>
+</dialog>
+
 <script>
 const $ = (id) => document.getElementById(id);
 let CFG = null;
@@ -310,15 +321,23 @@ const I18N = {
     ttDrive: "Choose which agents take turns. Lit = active. At least one must stay lit.",
     ttToggleCodex: "Toggle whether codex takes turns",
     ttToggleClaude: "Toggle whether claude takes turns",
-    ttConfig: "Edit all settings (prompts, strategy, timeouts, language)",
+    ttConfig: "Edit run settings (agents, strategy, timeouts, language)",
+    templates: "✎ Prompts", ttTemplates: "Manage prompt templates (separate from settings)",
     ttSkip: "Make this agent skip its next turn once",
     ttSend: "Send the typed message into this agent before its next turn",
     cfgGeneral: "General", cfgRepo: "Repo path", cfgUILang: "Agent / report language",
     cfgAddr: "Web addr", cfgFlow: "Flow", cfgFirst: "First reviewer",
-    cfgMaxRounds: "Max rounds", cfgStrategy: "Convergence strategy", cfgAskPrompt: "Ask prompt (optional)",
+    cfgMaxRounds: "Max rounds", cfgStrategy: "Convergence strategy",
     cfgEnabled: "Enabled", cfgCommand: "Command", cfgStable: "Stable for", cfgSettle: "Settle for",
-    cfgTimeout: "Timeout", cfgPromptFirst: "Prompt: first turn", cfgPromptNext: "Prompt: next turns",
+    cfgTimeout: "Timeout",
+    cfgPromptFirst: "Prompt: first turn", cfgPromptNext: "Prompt: next turns",
     saved: "Config saved",
+    tmplActive: "Active template", tmplEditing: "Editing", tmplNew: "+ New", tmplDelete: "Delete",
+    tmplName: "Name", tmplAsk: "Ask prompt (optional)",
+    tmplCodexFirst: "Codex · first turn", tmplCodexNext: "Codex · next turns",
+    tmplClaudeFirst: "Claude · first turn", tmplClaudeNext: "Claude · next turns",
+    tmplDefaultHint: "Empty = use the built-in go-audit default (shown as the grey placeholder).",
+    tmplSaved: "Templates saved", tmplNamePrompt: "Template name:", tmplDelConfirm: "Delete this template?",
   },
   zh: {
     start: "▶ 开始", stop: "■ 停止", pause: "⏸ 暂停", resume: "⏵ 继续",
@@ -333,15 +352,23 @@ const I18N = {
     ttDrive: "选择哪些 AI 参与。高亮=参与。至少保留一个高亮。",
     ttToggleCodex: "切换 codex 是否参与轮次",
     ttToggleClaude: "切换 claude 是否参与轮次",
-    ttConfig: "编辑全部设置(提示词、策略、超时、语言)",
+    ttConfig: "编辑运行设置(AI、策略、超时、语言)",
+    templates: "✎ 提示词", ttTemplates: "管理提示词模板(与设置分开)",
     ttSkip: "让这个 AI 跳过它的下一轮",
     ttSend: "在这个 AI 下一轮前注入输入框里的消息",
     cfgGeneral: "通用", cfgRepo: "仓库路径", cfgUILang: "AI / 报告语言",
     cfgAddr: "Web 地址", cfgFlow: "流程", cfgFirst: "谁先审",
-    cfgMaxRounds: "最大轮次", cfgStrategy: "收敛策略", cfgAskPrompt: "追问提示词(可选)",
+    cfgMaxRounds: "最大轮次", cfgStrategy: "收敛策略",
     cfgEnabled: "启用", cfgCommand: "启动命令", cfgStable: "稳定判定", cfgSettle: "等待启动",
-    cfgTimeout: "超时", cfgPromptFirst: "提示词: 首轮", cfgPromptNext: "提示词: 后续轮",
+    cfgTimeout: "超时",
+    cfgPromptFirst: "提示词: 首轮", cfgPromptNext: "提示词: 后续轮",
     saved: "配置已保存",
+    tmplActive: "当前使用", tmplEditing: "正在编辑", tmplNew: "+ 新建", tmplDelete: "删除",
+    tmplName: "名称", tmplAsk: "追问提示词(可选)",
+    tmplCodexFirst: "Codex · 首轮", tmplCodexNext: "Codex · 后续轮",
+    tmplClaudeFirst: "Claude · 首轮", tmplClaudeNext: "Claude · 后续轮",
+    tmplDefaultHint: "留空 = 用内置 go-audit 默认(显示为灰色占位)。",
+    tmplSaved: "模板已保存", tmplNamePrompt: "模板名称:", tmplDelConfirm: "删除这个模板?",
   },
 };
 let UILANG = localStorage.getItem("aibridge.uilang") || "zh";
@@ -669,14 +696,9 @@ function showStrategyLine(cfg) {
 
 $("btnConfig").onclick = async () => {
   CFG = await api("/api/config");
-  await loadDefaults(CFG.lang);
   showStrategyLine(CFG);
   renderConfig(CFG);
   $("cfgDialog").showModal();
-  // When the language select changes, re-fetch defaults so the prompt
-  // placeholders track the chosen language live.
-  const langSel = document.querySelector('[data-key="lang"]');
-  if (langSel) langSel.onchange = async () => { await loadDefaults(langSel.value); renderConfig(collectConfig()); };
 };
 
 $("cfgForm").addEventListener("submit", async (e) => {

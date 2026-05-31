@@ -20,17 +20,19 @@ import (
 	"aibridge/internal/bridge"
 	"aibridge/internal/config"
 	"aibridge/internal/gitx"
+	"aibridge/internal/promptlib"
 	"aibridge/internal/runner"
 	"aibridge/internal/server"
 )
 
 func main() {
 	var (
-		configPath = flag.String("config", "aibridge.yaml", "path to the YAML config (created on save; missing is fine)")
-		repo       = flag.String("repo", "", "override the repo path from config")
-		addr       = flag.String("addr", "", "override the web dashboard listen address")
-		headless   = flag.Bool("headless", false, "run one review loop in the terminal and exit (no web UI)")
-		noOpen     = flag.Bool("no-open", false, "do not auto-open the browser")
+		configPath  = flag.String("config", "aibridge.yaml", "path to the YAML config (created on save; missing is fine)")
+		promptsPath = flag.String("prompts", "prompts.json", "path to the prompt-template library JSON (created on save; missing is fine)")
+		repo        = flag.String("repo", "", "override the repo path from config")
+		addr        = flag.String("addr", "", "override the web dashboard listen address")
+		headless    = flag.Bool("headless", false, "run one review loop in the terminal and exit (no web UI)")
+		noOpen      = flag.Bool("no-open", false, "do not auto-open the browser")
 	)
 	flag.Parse()
 
@@ -45,20 +47,25 @@ func main() {
 		cfg.Server.Addr = *addr
 	}
 
+	lib, err := promptlib.Load(*promptsPath)
+	if err != nil {
+		fatal(err)
+	}
+
 	if *headless {
-		if err := runHeadless(cfg); err != nil {
+		if err := runHeadless(cfg, lib.ActiveTemplate()); err != nil {
 			fatal(err)
 		}
 		return
 	}
-	if err := serve(cfg, *configPath, *noOpen); err != nil {
+	if err := serve(cfg, *configPath, lib, *promptsPath, *noOpen); err != nil {
 		fatal(err)
 	}
 }
 
 // serve starts the web dashboard.
-func serve(cfg config.Config, configPath string, noOpen bool) error {
-	srv := server.New(cfg, configPath)
+func serve(cfg config.Config, configPath string, lib promptlib.Library, promptsPath string, noOpen bool) error {
+	srv := server.New(cfg, configPath, lib, promptsPath)
 	httpSrv := &http.Server{Addr: cfg.Server.Addr, Handler: srv.Handler()}
 
 	url := "http://" + cfg.Server.Addr
@@ -83,7 +90,7 @@ func serve(cfg config.Config, configPath string, noOpen bool) error {
 }
 
 // runHeadless reproduces the original one-shot CLI behavior.
-func runHeadless(cfg config.Config) error {
+func runHeadless(cfg config.Config, tmpl promptlib.Template) error {
 	if !gitx.IsRepo(cfg.Repo) {
 		return fmt.Errorf("%s is not a git work tree", cfg.Repo)
 	}
@@ -115,7 +122,7 @@ func runHeadless(cfg config.Config) error {
 		}
 	}()
 
-	if err := run.Start(cfg); err != nil {
+	if err := run.Start(cfg, tmpl); err != nil {
 		return err
 	}
 	<-done

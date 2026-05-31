@@ -14,6 +14,7 @@ import (
 	"aibridge/internal/bridge"
 	"aibridge/internal/config"
 	"aibridge/internal/gitx"
+	"aibridge/internal/promptlib"
 )
 
 // terminalCols/Rows is the initial pty/emulator size; the browser resizes it to
@@ -73,9 +74,10 @@ func (r *Runner) LastOutcome() *bridge.Outcome {
 	return r.last
 }
 
-// Start validates the config and launches a run in the background. It returns an
-// error synchronously for setup failures (bad config, not a repo, agent launch).
-func (r *Runner) Start(cfg config.Config) error {
+// Start validates the config and launches a run in the background using the
+// given prompt template. It returns an error synchronously for setup failures
+// (bad config, not a repo, agent launch).
+func (r *Runner) Start(cfg config.Config, tmpl promptlib.Template) error {
 	r.mu.Lock()
 	if r.running {
 		r.mu.Unlock()
@@ -100,7 +102,7 @@ func (r *Runner) Start(cfg config.Config) error {
 		return fmt.Errorf("%s is not a git work tree", cfg.Repo)
 	}
 
-	codexDrv, claudeDrv, agents, cleanup, err := r.buildDrivers(cfg)
+	codexDrv, claudeDrv, agents, cleanup, err := r.buildDrivers(cfg, tmpl)
 	if err != nil {
 		clearRunning()
 		return err
@@ -155,7 +157,7 @@ func (r *Runner) Stop() {
 // buildDrivers launches a pty-backed agent for each enabled side and wires
 // drivers. A disabled agent gets a no-op driver so the loop's alternation still
 // works (its turns are skipped via a clean, no-change review).
-func (r *Runner) buildDrivers(cfg config.Config) (codex, claude bridge.Driver, agents map[string]*agent.Agent, cleanup func(), err error) {
+func (r *Runner) buildDrivers(cfg config.Config, tmpl promptlib.Template) (codex, claude bridge.Driver, agents map[string]*agent.Agent, cleanup func(), err error) {
 	agents = map[string]*agent.Agent{}
 	cleanup = func() {
 		for _, a := range agents {
@@ -167,7 +169,11 @@ func (r *Runner) buildDrivers(cfg config.Config) (codex, claude bridge.Driver, a
 		if !ac.Enabled {
 			return noopDriver{side: side}, nil
 		}
-		ps, perr := bridge.NewPromptSet(side, ac.PromptFirst, ac.PromptNext, cfg.Lang, cfg.Flow.AskPrompt)
+		sp := tmpl.Codex
+		if side == "claude" {
+			sp = tmpl.Claude
+		}
+		ps, perr := bridge.NewPromptSet(side, sp.First, sp.Next, cfg.Lang, tmpl.Ask)
 		if perr != nil {
 			return nil, fmt.Errorf("%s prompt template: %w", side, perr)
 		}

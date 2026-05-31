@@ -13,23 +13,27 @@ import (
 
 	"aibridge/internal/bridge"
 	"aibridge/internal/config"
+	"aibridge/internal/promptlib"
 	"aibridge/internal/runner"
 )
 
 //go:embed web
 var webFS embed.FS
 
-// Server wires the runner and config to HTTP handlers.
+// Server wires the runner, config, and prompt library to HTTP handlers.
 type Server struct {
-	mu         sync.Mutex
-	cfg        config.Config
-	configPath string
-	run        *runner.Runner
+	mu          sync.Mutex
+	cfg         config.Config
+	configPath  string
+	lib         promptlib.Library // prompt-template library (persisted separately)
+	promptsPath string
+	run         *runner.Runner
 }
 
-// New creates a server holding the initial config (and the path to persist edits).
-func New(cfg config.Config, configPath string) *Server {
-	return &Server{cfg: cfg, configPath: configPath, run: runner.New()}
+// New creates a server holding the initial config + prompt library (and the
+// paths to persist edits of each).
+func New(cfg config.Config, configPath string, lib promptlib.Library, promptsPath string) *Server {
+	return &Server{cfg: cfg, configPath: configPath, lib: lib, promptsPath: promptsPath, run: runner.New()}
 }
 
 // Handler returns the root HTTP handler (static UI + /api/*).
@@ -40,6 +44,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/", http.FileServer(http.FS(sub)))
 
 	mux.HandleFunc("/api/config", s.handleConfig)
+	mux.HandleFunc("/api/templates", s.handleTemplates)
 	mux.HandleFunc("/api/defaults", s.handleDefaults)
 	mux.HandleFunc("/api/start", s.handleStart)
 	mux.HandleFunc("/api/stop", s.handleStop)
@@ -90,12 +95,50 @@ func (s *Server) handleStart(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.Lock()
 	cfg := s.cfg
+	tmpl := s.lib.ActiveTemplate()
 	s.mu.Unlock()
-	if err := s.run.Start(cfg); err != nil {
+	if err := s.run.Start(cfg, tmpl); err != nil {
 		httpErr(w, http.StatusBadRequest, err)
 		return
 	}
 	writeJSON(w, map[string]string{"status": "started"})
+}
+
+// handleTemplates serves and persists the prompt-template library.
+//
+//	GET  /api/templates  -> {active, templates:[...]}
+//	POST /api/templates  <- the full library (replaces it, saved to disk)
+func (s *Server) handleTemplates(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		s.mu.Lock()
+		lib := s.lib
+		s.mu.Unlock()
+		writeJSON(w, lib)
+	case http.MethodPost:
+		var lib promptlib.Library
+		if err := json.NewDecoder(r.Body).Decode(&lib); err != nil {
+			httpErr(w, http.StatusBadRequest, err)
+			return
+		}
+		if err := lib.Validate(); err != nil {
+			httpErr(w, http.StatusBadRequest, err)
+			return
+		}
+		s.mu.Lock()
+		s.lib = lib
+		path := s.promptsPath
+		s.mu.Unlock()
+		if path != "" {
+			if err := promptlib.Save(path, lib); err != nil {
+				httpErr(w, http.StatusInternalServerError, err)
+				return
+			}
+		}
+		writeJSON(w, map[string]string{"status": "saved"})
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
 }
 
 func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {

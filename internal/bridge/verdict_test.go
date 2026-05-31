@@ -59,7 +59,7 @@ func TestParseNoMoreBugs(t *testing.T) {
 // editing the prompt. Also checks single-line output and that the ask-block is
 // added only when asking.
 func TestRenderForcesVerdict(t *testing.T) {
-	ps, err := NewPromptSet("codex", "just look at the code", "look again", "en")
+	ps, err := NewPromptSet(KindDiff, "codex", "just look at the code", "look again", "en")
 	if err != nil {
 		t.Fatalf("NewPromptSet: %v", err)
 	}
@@ -89,7 +89,7 @@ func TestRenderDefaultNoDuplicateVerdict(t *testing.T) {
 	const verdictMarker = "加冒号再加一个英文单词"      // only in verdictInstruction(zh)
 	const askMarker = "写 token NO_MORE_BUGS" // only in askInstruction(zh)
 
-	ps, err := NewPromptSet("claude", "", "", "zh")
+	ps, err := NewPromptSet(KindDiff, "claude", "", "", "zh")
 	if err != nil {
 		t.Fatalf("NewPromptSet: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestRenderDefaultNoDuplicateVerdict(t *testing.T) {
 
 // TestPrompts_CustomTemplate confirms custom first/next templates are used.
 func TestPrompts_CustomTemplate(t *testing.T) {
-	ps, err := NewPromptSet("codex", "CUSTOM first {{.Verdict}}", "CUSTOM next {{.Handoff}} {{.Verdict}}", "en")
+	ps, err := NewPromptSet(KindDiff, "codex", "CUSTOM first {{.Verdict}}", "CUSTOM next {{.Handoff}} {{.Verdict}}", "en")
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
@@ -119,7 +119,7 @@ func TestPrompts_CustomTemplate(t *testing.T) {
 // TestPrompts_CustomAskPrompt confirms a user-supplied ask prompt is rendered
 // while the machine NO_MORE_BUGS/MORE_BUGS instruction is preserved.
 func TestPrompts_CustomAskPrompt(t *testing.T) {
-	ps, err := NewPromptSet("codex", "", "", "en", "Double-check concurrency edge cases.")
+	ps, err := NewPromptSet(KindDiff, "codex", "", "", "en", "Double-check concurrency edge cases.")
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
@@ -134,7 +134,7 @@ func TestPrompts_CustomAskPrompt(t *testing.T) {
 
 // TestPrompts_BadTemplateErrors confirms malformed templates surface an error.
 func TestPrompts_BadTemplateErrors(t *testing.T) {
-	if _, err := NewPromptSet("codex", "{{.Unclosed", "", "en"); err == nil {
+	if _, err := NewPromptSet(KindDiff, "codex", "{{.Unclosed", "", "en"); err == nil {
 		t.Fatalf("expected error for malformed template")
 	}
 }

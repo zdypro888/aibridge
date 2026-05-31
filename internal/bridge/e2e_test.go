@@ -68,8 +68,8 @@ func TestEndToEnd_PtyMockAgents(t *testing.T) {
 	}
 	time.Sleep(1 * time.Second)
 
-	cps, _ := NewPromptSet("codex", "", "", "en")
-	lps, _ := NewPromptSet("claude", "", "", "en")
+	cps, _ := NewPromptSet(KindDiff, "codex", "", "", "en")
+	lps, _ := NewPromptSet(KindDiff, "claude", "", "", "en")
 	codexDrv := NewAgentDriver("codex", codexAg, repo, wait, cps)
 	claudeDrv := NewAgentDriver("claude", claudeAg, repo, wait, lps)
 

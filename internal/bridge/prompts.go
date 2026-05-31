@@ -35,6 +35,24 @@ func normLang(s string) Lang {
 	return LangEN
 }
 
+// ReviewKind selects which built-in doctrine an empty template field falls back
+// to: a focused review of the pending diff, or a full sweep of the whole
+// codebase that continues until nothing remains to improve.
+type ReviewKind string
+
+const (
+	KindDiff ReviewKind = "diff" // review the current uncommitted changes
+	KindFull ReviewKind = "full" // audit the entire codebase until nothing remains
+)
+
+// normKind defaults blank/unknown to the diff review.
+func normKind(s string) ReviewKind {
+	if ReviewKind(s) == KindFull {
+		return KindFull
+	}
+	return KindDiff
+}
+
 // verdictInstruction returns the language-appropriate instruction for ending the
 // reply with a parseable verdict line. The token stays in ASCII.
 func verdictInstruction(l Lang) string {
@@ -137,15 +155,66 @@ const (
 		`{{.ReplyLang}} {{.Verdict}}{{if .Ask}} {{.AskBlock}}{{end}}`
 )
 
+// Full-review (whole-codebase sweep) built-in templates. Unlike the diff review,
+// these direct the two agents to systematically audit the ENTIRE repository over
+// successive turns — not just the pending changes — and keep going until both
+// sides agree nothing is left to improve. codex and claude share the same text.
+const (
+	enFullIntro = `You are one of two AI code reviewers performing a FULL audit of this entire repository, taking turns. ` +
+		`You and the other agent alternate sweeping the whole codebase — not just recent changes — each fixing real bugs the other may have missed, ` +
+		`and the loop continues until you both agree the entire codebase is clean with nothing left to improve. `
+
+	enFullRules = `Work like a zero-trust third-party auditor over the whole project: ` +
+		`(1) Read the actual code/docs before judging — do not guess APIs or behavior; verify. ` +
+		`(2) Sweep systematically: survey the source tree, and each turn pick the riskiest area not yet audited and read it in full — cover the entire codebase across the rounds, not a single file. ` +
+		`(3) Cover correctness, error handling, concurrency/races, edge cases (nil, bounds, overflow), resource cleanup, API misuse, and clear performance or maintainability defects. ` +
+		`(4) Fix the root cause with complete, atomic edits — no TODOs, no placeholders, no fake simplification, no undoing the other reviewer's correct changes. ` +
+		`(5) After editing, run the project's gates (build, vet, tests, formatter) and make sure they pass. ` +
+		`(6) Do NOT commit or stage — leave your changes uncommitted in the work tree so the other reviewer can see them via git diff. `
+
+	enFullFirst = enFullIntro + enFullRules +
+		`Begin the sweep now: survey the repository layout, then deep-read and audit the area you judge riskiest, fixing what you find. ` +
+		`{{.ReplyLang}} {{.Verdict}}{{if .Ask}} {{.AskBlock}}{{end}}`
+	enFullNext = `The other agent just audited part of the codebase ({{.Handoff}}). ` + enFullRules +
+		`Verify their edits (git diff), then continue the sweep into an area not yet covered and fix anything still wrong. ` +
+		`{{.ReplyLang}} {{.Verdict}}{{if .Ask}} {{.AskBlock}}{{end}}`
+
+	zhFullIntro = `你是两个 AI 代码审查员之一，正在对整个仓库做全量审查，轮流进行。` +
+		`你和另一个 agent 交替遍历整个代码库（不只是最近的改动），各自修复对方可能遗漏的真实 bug，循环直到双方都认为整个代码库已经干净、没有任何可改进之处。`
+
+	zhFullRules = `请以零信任的第三方审查员视角，对整个项目工作：` +
+		`(1) 下结论前先读真实代码/文档，不要臆断 API 或行为，要查证；` +
+		`(2) 系统性地遍历：先了解源码树结构，每一轮挑选尚未审查、风险最高的区域并完整读完——在多轮中覆盖整个代码库，而不是只看一个文件；` +
+		`(3) 覆盖正确性、错误处理、并发/竞态、边界情况（nil、越界、溢出）、资源释放、API 误用，以及明显的性能或可维护性缺陷；` +
+		`(4) 修根因，改动要完整、原子——不留 TODO、不留占位、不做虚假简化、不撤销对方正确的改动；` +
+		`(5) 改完后运行项目的门禁（构建、vet、测试、格式化）并确保通过；` +
+		`(6) 不要提交或暂存——把改动留在工作区未提交，好让另一个审查员通过 git diff 看到。`
+
+	zhFullFirst = zhFullIntro + zhFullRules +
+		`现在开始遍历：先了解仓库结构，然后深入阅读并审查你判断风险最高的区域，发现问题就修复。` +
+		`{{.ReplyLang}} {{.Verdict}}{{if .Ask}} {{.AskBlock}}{{end}}`
+	zhFullNext = `另一个 agent 刚审查了代码库的一部分（{{.Handoff}}）。` + zhFullRules +
+		`先核对它的改动（git diff），然后继续遍历到尚未覆盖的区域，修复仍有问题的地方。` +
+		`{{.ReplyLang}} {{.Verdict}}{{if .Ask}} {{.AskBlock}}{{end}}`
+)
+
 // DefaultPrompts is the exported view of the built-in (first, next) template for
-// a side+language. The web UI shows these as placeholders so an empty per-agent
-// prompt is understood as "use this default", and the user can copy/edit it.
-func DefaultPrompts(side, lang string) (first, next string) {
-	return defaultPrompts(side, normLang(lang))
+// a kind+side+language. The web UI shows these as placeholders so an empty
+// per-agent prompt is understood as "use this default", and the user can
+// copy/edit it.
+func DefaultPrompts(kind, side, lang string) (first, next string) {
+	return defaultPrompts(normKind(kind), side, normLang(lang))
 }
 
-// defaultPrompts returns the (first, next) default template for a side+language.
-func defaultPrompts(side string, l Lang) (first, next string) {
+// defaultPrompts returns the (first, next) default template for a
+// kind+side+language. The full-review kind shares one text across both sides.
+func defaultPrompts(kind ReviewKind, side string, l Lang) (first, next string) {
+	if kind == KindFull {
+		if l == LangZH {
+			return zhFullFirst, zhFullNext
+		}
+		return enFullFirst, enFullNext
+	}
 	switch {
 	case side == "codex" && l == LangZH:
 		return zhCodexFirst, zhCodexNext
@@ -170,13 +239,13 @@ type PromptSet struct {
 // NewPromptSet compiles a side's templates for the given language, falling back
 // to that language's built-in defaults when a string is empty. Returns an error
 // if a non-empty custom template is malformed (surfaced by the UI).
-func NewPromptSet(side, first, next, lang string, askPrompt ...string) (*PromptSet, error) {
+func NewPromptSet(kind ReviewKind, side, first, next, lang string, askPrompt ...string) (*PromptSet, error) {
 	l := normLang(lang)
 	var ask string
 	if len(askPrompt) > 0 {
 		ask = askPrompt[0]
 	}
-	defFirst, defNext := defaultPrompts(side, l)
+	defFirst, defNext := defaultPrompts(kind, side, l)
 	if strings.TrimSpace(first) == "" {
 		first = defFirst
 	}

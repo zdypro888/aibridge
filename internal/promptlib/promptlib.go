@@ -26,9 +26,18 @@ type SidePrompts struct {
 type Template struct {
 	ID     string      `json:"id"`     // stable identifier referenced by config
 	Name   string      `json:"name"`   // human label shown in the UI
+	Kind   string      `json:"kind"`   // review doctrine for empty fields: "diff" or "full"
 	Codex  SidePrompts `json:"codex"`  // codex's first/next (empty = built-in default)
 	Claude SidePrompts `json:"claude"` // claude's first/next (empty = built-in default)
 	Ask    string      `json:"ask"`    // optional custom ask-gate question (empty = default)
+}
+
+// ReviewKind returns the template's review doctrine, defaulting to "diff".
+func (t Template) ReviewKind() string {
+	if strings.TrimSpace(t.Kind) == "" {
+		return KindDiff
+	}
+	return t.Kind
 }
 
 // Library is the whole template collection plus which one is active.
@@ -37,17 +46,44 @@ type Library struct {
 	Templates []Template `json:"templates"` // all templates; always includes "default"
 }
 
-// DefaultTemplateID is the built-in, undeletable template (all-empty = use the
-// built-in go-audit defaults for both sides).
-const DefaultTemplateID = "default"
+// Built-in template ids and review kinds. The built-in templates always exist
+// (normalize re-inserts any that are missing) and are shown read-only in the UI;
+// their empty fields resolve to the matching go-audit doctrine for the configured
+// language.
+const (
+	DefaultTemplateID    = "default"     // 修改审核: review the pending diff
+	FullReviewTemplateID = "full-review" // 代码全局审核: sweep the whole codebase
 
-// Default returns a library containing only the built-in default template.
+	KindDiff = "diff"
+	KindFull = "full"
+)
+
+// builtinTemplates returns the always-present built-in templates, in display
+// order. They carry empty prompt fields so each resolves to the built-in
+// doctrine for its Kind + the configured language.
+func builtinTemplates() []Template {
+	return []Template{
+		{ID: DefaultTemplateID, Name: "修改审核（go-audit 严格审查）", Kind: KindDiff},
+		{ID: FullReviewTemplateID, Name: "代码全局审核（go-audit 全量审查）", Kind: KindFull},
+	}
+}
+
+// IsBuiltin reports whether id names a built-in (undeletable, read-only) template.
+func IsBuiltin(id string) bool {
+	for _, b := range builtinTemplates() {
+		if b.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+// Default returns a library containing the built-in templates, with the diff
+// review active.
 func Default() Library {
 	return Library{
-		Active: DefaultTemplateID,
-		Templates: []Template{
-			{ID: DefaultTemplateID, Name: "默认（go-audit 严格审查）"},
-		},
+		Active:    DefaultTemplateID,
+		Templates: builtinTemplates(),
 	}
 }
 
@@ -81,19 +117,23 @@ func Save(path string, lib Library) error {
 	return os.WriteFile(path, data, 0o644)
 }
 
-// normalize guarantees the built-in default template exists and that Active
-// points at a real template.
+// normalize guarantees every built-in template exists, that each template has a
+// Kind, and that Active points at a real template. Missing built-ins are
+// prepended in declared order so the defaults always lead the list.
 func (l *Library) normalize() {
-	hasDefault := false
-	for _, t := range l.Templates {
-		if t.ID == DefaultTemplateID {
-			hasDefault = true
-			break
+	var missing []Template
+	for _, b := range builtinTemplates() {
+		if l.Get(b.ID) == nil {
+			missing = append(missing, b)
 		}
 	}
-	if !hasDefault {
-		// Prepend the immutable built-in default.
-		l.Templates = append([]Template{{ID: DefaultTemplateID, Name: "默认（go-audit 严格审查）"}}, l.Templates...)
+	if len(missing) > 0 {
+		l.Templates = append(missing, l.Templates...)
+	}
+	for i := range l.Templates {
+		if strings.TrimSpace(l.Templates[i].Kind) == "" {
+			l.Templates[i].Kind = KindDiff
+		}
 	}
 	if l.Get(l.Active) == nil {
 		l.Active = DefaultTemplateID
@@ -115,7 +155,7 @@ func (l *Library) ActiveTemplate() Template {
 	if t := l.Get(l.Active); t != nil {
 		return *t
 	}
-	return Template{ID: DefaultTemplateID, Name: "默认（go-audit 严格审查）"}
+	return builtinTemplates()[0]
 }
 
 // Validate checks the library is coherent (unique non-empty ids, default present,

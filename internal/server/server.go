@@ -218,8 +218,9 @@ func (s *Server) handleDefaults(w http.ResponseWriter, r *http.Request) {
 		lang = s.cfg.Lang
 		s.mu.Unlock()
 	}
-	cf, cn := bridge.DefaultPrompts("codex", lang)
-	lf, ln := bridge.DefaultPrompts("claude", lang)
+	kind := r.URL.Query().Get("kind")
+	cf, cn := bridge.DefaultPrompts(kind, "codex", lang)
+	lf, ln := bridge.DefaultPrompts(kind, "claude", lang)
 	writeJSON(w, map[string]any{
 		"codex":  map[string]string{"first": cf, "next": cn},
 		"claude": map[string]string{"first": lf, "next": ln},

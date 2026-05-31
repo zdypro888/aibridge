@@ -173,7 +173,7 @@ func (r *Runner) buildDrivers(cfg config.Config, tmpl promptlib.Template) (codex
 		if side == "claude" {
 			sp = tmpl.Claude
 		}
-		ps, perr := bridge.NewPromptSet(side, sp.First, sp.Next, cfg.Lang, tmpl.Ask)
+		ps, perr := bridge.NewPromptSet(bridge.ReviewKind(tmpl.ReviewKind()), side, sp.First, sp.Next, cfg.Lang, tmpl.Ask)
 		if perr != nil {
 			return nil, fmt.Errorf("%s prompt template: %w", side, perr)
 		}

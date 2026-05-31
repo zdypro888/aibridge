@@ -76,46 +76,64 @@ func replyLangDirective(l Lang) string {
 
 // Built-in default templates per language. Empty per-agent config falls back to
 // the matching language's default.
+//
+// Authoring notes:
+//   - Templates are written multi-line for readability; Render() flattens them.
+//   - The mandatory verdict instruction ({{.Verdict}}, plus {{.AskBlock}} when
+//     asking) is auto-appended by Render even if a template omits it, so custom
+//     prompts can't accidentally break convergence. Keeping the tokens here too
+//     is harmless (Render de-dupes by only appending when missing).
+//   - Rules below are distilled from the project's go-audit doctrine: zero-trust,
+//     verify-don't-guess, fix root causes (not just the diff), run the gates,
+//     keep edits uncommitted so the other reviewer can see them.
 const (
-	enIntro = `You are one of two AI code reviewers taking turns on this repository. ` +
-		`You and the other agent alternate: each reviews the current uncommitted changes, ` +
-		`fixes bugs the other may have missed, and the loop continues until you both agree the code is clean. `
+	enRules = `Work like a zero-trust third-party auditor: ` +
+		`(1) Read the actual code/docs before judging — do not guess APIs or behavior; verify. ` +
+		`(2) Look beyond the diff: if a real bug elsewhere is exposed or related, fix it too. ` +
+		`(3) Cover correctness, error handling, concurrency/races, edge cases (nil, bounds, overflow), resource cleanup, and API misuse. ` +
+		`(4) Fix the root cause with complete, atomic edits — no TODOs, no placeholders, no fake simplification, no undoing the other reviewer's correct changes. ` +
+		`(5) After editing, run the project's gates (build, vet, tests, formatter) and make sure they pass. ` +
+		`(6) Do NOT commit or stage — leave your changes uncommitted in the work tree so the other reviewer can see them via git diff. `
 
-	enCodexFirst = enIntro +
-		`Review all current uncommitted changes in this repository (run git diff). ` +
-		`Check for bugs, logic errors, edge cases, and type-safety problems. ` +
-		`If you are confident about a fix, edit the code directly; do not refactor unrelated code. ` +
+	enIntro = `You are one of two AI code reviewers taking turns on this repository. ` +
+		`You and the other agent alternate: each reviews the current state, fixes bugs the other may have missed, ` +
+		`and the loop continues until you both agree the code is clean. `
+
+	enCodexFirst = enIntro + enRules +
+		`Start by running git diff (and git status) to see the current uncommitted changes, then review. ` +
 		`{{.ReplyLang}} {{.Verdict}}{{if .Ask}} {{.AskBlock}}{{end}}`
-	enCodexNext = `The other agent just reviewed the changes ({{.Handoff}}). ` +
-		`Re-review the current uncommitted changes (git diff) and fix anything you are confident is a real bug; ` +
-		`do not undo their correct changes. {{.ReplyLang}} {{.Verdict}}{{if .Ask}} {{.AskBlock}}{{end}}`
-	enClaudeFirst = enIntro +
-		`Review all current uncommitted changes in this repository (run git diff). ` +
-		`Look for bugs, logic errors, edge cases, and type-safety problems, and fix anything you are confident about. ` +
+	enCodexNext = `The other agent just reviewed the changes ({{.Handoff}}). ` + enRules +
+		`Re-check the current state (git diff), verify their edits are correct, and fix anything still wrong. ` +
 		`{{.ReplyLang}} {{.Verdict}}{{if .Ask}} {{.AskBlock}}{{end}}`
-	enClaudeNext = `Codex just reviewed (and possibly edited) the current uncommitted changes ({{.Handoff}}). ` +
-		`Audit the current state (git diff): verify the edits are correct and look for remaining bugs. ` +
-		`Fix anything you are confident is a real bug; do not undo correct changes. ` +
+	enClaudeFirst = enIntro + enRules +
+		`Start by running git diff (and git status) to see the current uncommitted changes, then review. ` +
 		`{{.ReplyLang}} {{.Verdict}}{{if .Ask}} {{.AskBlock}}{{end}}`
+	enClaudeNext = `The other agent just reviewed (and may have edited) the code ({{.Handoff}}). ` + enRules +
+		`Re-check the current state (git diff), verify their edits are correct, and fix anything still wrong. ` +
+		`{{.ReplyLang}} {{.Verdict}}{{if .Ask}} {{.AskBlock}}{{end}}`
+
+	zhRules = `请以零信任的第三方审查员视角工作：` +
+		`(1) 下结论前先读真实代码/文档，不要臆断 API 或行为，要查证；` +
+		`(2) 不要只盯着 diff——如果发现相关或被牵连的真实 bug，一并修复；` +
+		`(3) 覆盖正确性、错误处理、并发/竞态、边界情况（nil、越界、溢出）、资源释放、API 误用；` +
+		`(4) 修根因，改动要完整、原子——不留 TODO、不留占位、不做虚假简化、不撤销对方正确的改动；` +
+		`(5) 改完后运行项目的门禁（构建、vet、测试、格式化）并确保通过；` +
+		`(6) 不要提交或暂存——把改动留在工作区未提交，好让另一个审查员通过 git diff 看到。`
 
 	zhIntro = `你是两个 AI 代码审查员之一，正在轮流审查本仓库。` +
-		`你和另一个 agent 交替进行：每人审查当前未提交的改动、修复对方可能遗漏的 bug，循环直到双方都认为代码干净。`
+		`你和另一个 agent 交替进行：每人审查当前状态、修复对方可能遗漏的 bug，循环直到双方都认为代码干净。`
 
-	zhCodexFirst = zhIntro +
-		`审查本仓库当前所有未提交的改动（运行 git diff 查看）。` +
-		`检查 bug、逻辑错误、边界情况和类型安全问题。` +
-		`如果你有把握，直接修改代码；不要重构无关代码。` +
+	zhCodexFirst = zhIntro + zhRules +
+		`先运行 git diff（和 git status）查看当前未提交的改动，然后开始审查。` +
 		`{{.ReplyLang}} {{.Verdict}}{{if .Ask}} {{.AskBlock}}{{end}}`
-	zhCodexNext = `另一个 agent 刚审查了改动（{{.Handoff}}）。` +
-		`重新审查当前未提交的改动（git diff），修复你确信是真 bug 的地方；不要撤销对方正确的改动。` +
+	zhCodexNext = `另一个 agent 刚审查了改动（{{.Handoff}}）。` + zhRules +
+		`重新检查当前状态（git diff），核对它的修改是否正确，并修复仍有问题的地方。` +
 		`{{.ReplyLang}} {{.Verdict}}{{if .Ask}} {{.AskBlock}}{{end}}`
-	zhClaudeFirst = zhIntro +
-		`审查本仓库当前所有未提交的改动（运行 git diff 查看）。` +
-		`查找 bug、逻辑错误、边界情况和类型安全问题，并修复你有把握的地方。` +
+	zhClaudeFirst = zhIntro + zhRules +
+		`先运行 git diff（和 git status）查看当前未提交的改动，然后开始审查。` +
 		`{{.ReplyLang}} {{.Verdict}}{{if .Ask}} {{.AskBlock}}{{end}}`
-	zhClaudeNext = `Codex 刚审查（并可能修改）了当前未提交的改动（{{.Handoff}}）。` +
-		`审计当前状态（git diff）：核对它的修改是否正确，并查找遗留 bug。` +
-		`修复你确信是真 bug 的地方；不要撤销正确的改动。` +
+	zhClaudeNext = `另一个 agent 刚审查（并可能修改）了代码（{{.Handoff}}）。` + zhRules +
+		`重新检查当前状态（git diff），核对它的修改是否正确，并修复仍有问题的地方。` +
 		`{{.ReplyLang}} {{.Verdict}}{{if .Ask}} {{.AskBlock}}{{end}}`
 )
 
@@ -203,7 +221,18 @@ func (p *PromptSet) Render(handoff string, ask bool) string {
 		// On a render error fall back to a minimal safe prompt rather than crash.
 		return flatten("Review the current git diff for bugs and fix what you can. " + verdictInstruction(p.lang))
 	}
-	return flatten(buf.String())
+	out := flatten(buf.String())
+
+	// Force the machine-parseable verdict onto the end even if a custom template
+	// forgot it — without it the bridge can never detect convergence. We append
+	// only what's missing so well-formed templates aren't duplicated.
+	if !strings.Contains(out, "AUDIT_RESULT") {
+		out = flatten(out + " " + data.Verdict)
+	}
+	if ask && !strings.Contains(out, "NO_MORE_BUGS") {
+		out = flatten(out + " " + data.AskBlock)
+	}
+	return out
 }
 
 // flatten collapses all whitespace runs (including newlines) into single spaces

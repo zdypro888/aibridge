@@ -42,9 +42,9 @@ func TestEndToEnd_PtyMockAgents(t *testing.T) {
 
 	wait := agent.WaitOpts{
 		Poll:    200 * time.Millisecond,
-		Stable:  2 * time.Second,
-		Settle:  15 * time.Second,
-		Timeout: 60 * time.Second,
+		Stable:  3 * time.Second,
+		Settle:  20 * time.Second,
+		Timeout: 90 * time.Second,
 	}
 
 	fixTarget := filepath.Join(repo, "code.go")

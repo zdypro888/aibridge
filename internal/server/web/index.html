@@ -190,8 +190,27 @@
   ::-webkit-scrollbar-thumb:hover { background:#3a455c; background-clip:padding-box; }
   ::-webkit-scrollbar-track { background:transparent; }
 
+  /* ---- full-height layout: terminals fill the remaining viewport, the log sits
+     under the controls showing ~3 rows and scrolls. The page itself never
+     scrolls on desktop; only the log and each terminal scroll internally. ---- */
+  html,body { height:100%; }
+  body { display:flex; flex-direction:column; min-height:100vh; }
+  header, .bar, .banner, section.wide { flex:0 0 auto; }
+  section.wide { padding:12px 20px 0; }
+  .timeline { height:76px; max-height:76px; overflow-y:auto; }
+  main { flex:1 1 auto; min-height:0; }              /* fill leftover height */
+  .panel { min-height:0; }                            /* allow children to shrink */
+  .term { height:auto; flex:1 1 auto; min-height:0; } /* terminal fills the panel */
+
   /* ---- mobile ---- */
   @media (max-width:640px) {
+    /* On phones a single filled viewport with two stacked terminals is cramped,
+       so let the page scroll and give each terminal a comfortable fixed height. */
+    body { display:block; }
+    main { display:grid; }
+    .term { height:clamp(240px,46vh,460px); flex:none; }
+    section.wide { padding:10px 12px 0; }
+    .timeline { height:68px; max-height:68px; }
     header { padding:10px 12px; gap:10px; }
     header h1 { font-size:15px; }
     .bar { padding:10px 12px; gap:7px; }
@@ -235,6 +254,10 @@
 
 <div class="banner" id="banner"></div>
 
+<section class="wide">
+  <div class="timeline" id="timeline"></div>
+</section>
+
 <main>
   <div class="panel">
     <h2>codex <span class="v UNKNOWN" id="vcodex">—</span></h2>
@@ -257,10 +280,6 @@
     </div>
   </div>
 </main>
-
-<section class="wide">
-  <div class="timeline" id="timeline"></div>
-</section>
 
 <dialog id="cfgDialog">
   <form id="cfgForm" method="dialog">

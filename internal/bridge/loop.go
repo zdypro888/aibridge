@@ -7,7 +7,7 @@ import (
 
 // Config tunes the ping-pong loop.
 type Config struct {
-	MaxRounds int    // hard ceiling on turns to prevent infinite loops / runaway cost
+	MaxRounds int    // hard ceiling on turns; 0 (or negative) means unlimited — run until convergence or abort
 	FirstSide string // who reviews first, "codex" or "claude"
 	Strategy  string // convergence strategy name (see NewStrategy)
 }
@@ -39,9 +39,10 @@ type Deps struct {
 // the round cap is hit, or the user aborts. Convergence is decided by the
 // pluggable Strategy, not a hard-wired rule.
 func Run(ctx context.Context, cfg Config, d Deps) (Outcome, error) {
-	if cfg.MaxRounds <= 0 {
-		cfg.MaxRounds = DefaultConfig().MaxRounds
-	}
+	// MaxRounds <= 0 means unlimited: the loop runs until the strategy converges
+	// or the user aborts. This is what the whole-codebase review needs ("keep
+	// going until there is nothing left to improve").
+	unlimited := cfg.MaxRounds <= 0
 	strat := NewStrategy(cfg.Strategy)
 	bus := d.Bus
 	ctrl := d.Ctrl
@@ -59,9 +60,13 @@ func Run(ctx context.Context, cfg Config, d Deps) (Outcome, error) {
 		return out, fmt.Errorf("initial hash: %w", err)
 	}
 
-	publish(bus, Event{Kind: EventRunStarted, Message: fmt.Sprintf("strategy=%s first=%s maxRounds=%d", strat.Name(), cfg.FirstSide, cfg.MaxRounds)})
+	maxRoundsMsg := fmt.Sprintf("%d", cfg.MaxRounds)
+	if unlimited {
+		maxRoundsMsg = "unlimited"
+	}
+	publish(bus, Event{Kind: EventRunStarted, Message: fmt.Sprintf("strategy=%s first=%s maxRounds=%s", strat.Name(), cfg.FirstSide, maxRoundsMsg)})
 
-	for out.Rounds < cfg.MaxRounds {
+	for unlimited || out.Rounds < cfg.MaxRounds {
 		drv := order[out.Rounds%2]
 		side := drv.Name()
 

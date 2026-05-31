@@ -152,6 +152,31 @@ func TestCombined_NeedsBothSignals(t *testing.T) {
 	}
 }
 
+func TestUnlimitedRounds_NotCappedButConverges(t *testing.T) {
+	h := "base"
+	// codex keeps editing for 12 turns (well past the old default cap of 8),
+	// then both go quiet. With MaxRounds=0 (unlimited) the loop must NOT stop on a
+	// round cap; it runs until the scripts are exhausted and the scriptDriver's
+	// default (clean + no-more-bugs, no change) lets it converge.
+	var steps []step
+	for i := range 12 {
+		steps = append(steps, step{verdict: VerdictFixed, newHash: fmt.Sprintf("e-%d", i)})
+	}
+	codex := &scriptDriver{name: "codex", hp: &h, steps: steps}
+	claude := &scriptDriver{name: "claude", hp: &h, steps: []step{}}
+
+	out, err := run(Config{MaxRounds: 0, FirstSide: "codex", Strategy: "combined"}, codex, claude, &h)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !out.Converged {
+		t.Fatalf("unlimited run should converge once edits stop; reason=%q rounds=%d", out.Reason, out.Rounds)
+	}
+	if out.Rounds <= 8 {
+		t.Fatalf("unlimited run should run past the old cap of 8; got %d rounds", out.Rounds)
+	}
+}
+
 func TestControl_OnlySide(t *testing.T) {
 	h := "base"
 	codex := &scriptDriver{name: "codex", hp: &h, steps: []step{{verdict: VerdictClean, noMore: true}}}

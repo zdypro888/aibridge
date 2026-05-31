@@ -50,7 +50,7 @@ type Agent struct {
 // FlowConfig controls the ping-pong loop and convergence.
 type FlowConfig struct {
 	First     string `yaml:"first" json:"first"`           // "codex" or "claude": who reviews first
-	MaxRounds int    `yaml:"max_rounds" json:"max_rounds"` // hard cap on turns
+	MaxRounds int    `yaml:"max_rounds" json:"max_rounds"` // hard cap on turns; 0 = unlimited (run until convergence or stop)
 	// Strategy selects how convergence ("both clean, no more bugs") is decided.
 	// Pluggable so the flow isn't hard-wired: "diff-fixpoint" | "ask-gate" |
 	// "combined". See bridge/strategy.go.
@@ -143,9 +143,9 @@ func (c Config) Validate() error {
 	default:
 		return fmt.Errorf("lang must be en or zh, got %q", c.Lang)
 	}
-	if c.Flow.MaxRounds <= 0 {
-		return fmt.Errorf("flow.max_rounds must be positive")
-	}
+	// MaxRounds <= 0 is allowed and means "unlimited": run until the agents
+	// converge (both clean, no more bugs) or the user stops the run — needed by
+	// the whole-codebase review, which must not be cut off by a round cap.
 	if err := validateAgent("codex", c.Agents.Codex); err != nil {
 		return err
 	}

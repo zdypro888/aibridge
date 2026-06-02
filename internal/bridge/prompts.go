@@ -176,7 +176,7 @@ const (
 		`Begin the sweep now: survey the repository layout, then deep-read and audit the area you judge riskiest, fixing what you find. ` +
 		`{{.ReplyLang}} {{.Verdict}}{{if .Ask}} {{.AskBlock}}{{end}}`
 	enFullNext = `The other agent just took an audit turn ({{.Handoff}}). ` + enFullRules +
-		`Keep auditing the whole project: review the current changes (git diff) AND continue through code not yet covered, fixing anything still wrong. Stop only when nothing is left to fix. ` +
+		`Continue the audit of the WHOLE project — keep moving through code not yet covered and re-examine anything that still looks wrong, fixing what you find. Stop only when nothing is left to fix. ` +
 		`{{.ReplyLang}} {{.Verdict}}{{if .Ask}} {{.AskBlock}}{{end}}`
 
 	zhFullIntro = `你是两个 AI 代码审查员之一，正在对整个仓库做全量审查，轮流进行。` +
@@ -194,7 +194,7 @@ const (
 		`现在开始遍历：先了解仓库结构，然后深入阅读并审查你判断风险最高的区域，发现问题就修复。` +
 		`{{.ReplyLang}} {{.Verdict}}{{if .Ask}} {{.AskBlock}}{{end}}`
 	zhFullNext = `另一个 agent 刚审查了一轮（{{.Handoff}}）。` + zhFullRules +
-		`继续审查整个项目：既要审查当前已有的改动（git diff），也要继续遍历尚未覆盖的代码，修复仍有问题的地方。直到再也没有可修改的地方才停止。` +
+		`继续审查【整个项目】：继续遍历尚未覆盖的代码，并重新检查仍有问题的地方，发现就修复。直到再也没有可修改的地方才停止。` +
 		`{{.ReplyLang}} {{.Verdict}}{{if .Ask}} {{.AskBlock}}{{end}}`
 )
 

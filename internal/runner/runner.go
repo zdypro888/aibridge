@@ -8,6 +8,7 @@ package runner
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 	"sync"
 
@@ -64,6 +65,21 @@ func applyResume(side, command string, r Resume) string {
 // shellQuote single-quotes a value for safe inclusion in the `sh -c` command.
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// busyRe compiles an agent's busy-status pattern, falling back to the built-in
+// default when empty. Config.Validate already rejected an invalid custom regexp,
+// so a compile error here can only be a bad default — in which case we return nil
+// (Timeout still backstops) rather than panic.
+func busyRe(pattern string) *regexp.Regexp {
+	if pattern == "" {
+		pattern = config.DefaultBusyPattern
+	}
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return nil
+	}
+	return re
 }
 
 // terminalCols/Rows is the initial pty/emulator size; the browser resizes it to
@@ -241,6 +257,7 @@ func (r *Runner) buildDrivers(cfg config.Config, tmpl promptlib.Template, resume
 			Stable:  ac.StableFor.D(),
 			Settle:  ac.SettleFor.D(),
 			Timeout: ac.Timeout.D(),
+			Busy:    busyRe(ac.BusyPattern),
 		}
 		return bridge.NewAgentDriver(side, ag, cfg.Repo, wait, ps), nil
 	}

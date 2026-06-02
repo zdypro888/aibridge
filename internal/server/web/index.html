@@ -336,6 +336,7 @@ const I18N = {
     cfgMaxRounds: "Max rounds (0 = unlimited)", cfgStrategy: "Convergence strategy",
     cfgEnabled: "Enabled", cfgCommand: "Command", cfgStable: "Stable for", cfgSettle: "Settle for",
     cfgTimeout: "Timeout",
+    cfgBusy: "Busy pattern (regex)",
     saved: "Config saved",
     tmplActive: "Active template", tmplNew: "+ New", tmplDelete: "Delete",
     tmplName: "Name", tmplAsk: "Ask prompt (optional)",
@@ -368,6 +369,7 @@ const I18N = {
     cfgMaxRounds: "最大轮次 (0 = 无限)", cfgStrategy: "收敛策略",
     cfgEnabled: "启用", cfgCommand: "启动命令", cfgStable: "稳定判定", cfgSettle: "等待启动",
     cfgTimeout: "超时",
+    cfgBusy: "忙碌标志(正则)",
     saved: "配置已保存",
     tmplActive: "当前使用", tmplNew: "+ 新建", tmplDelete: "删除",
     tmplName: "名称", tmplAsk: "追问提示词(可选)",
@@ -693,12 +695,14 @@ function renderConfig(cfg) {
     ${field(t("cfgStable"), "agents.codex.stable_for", a.codex.stable_for)}
     ${field(t("cfgSettle"), "agents.codex.settle_for", a.codex.settle_for)}
     ${field(t("cfgTimeout"), "agents.codex.timeout", a.codex.timeout)}
+    ${field(t("cfgBusy"), "agents.codex.busy_pattern", a.codex.busy_pattern || "", "text", "(?i)esc to interrupt")}
     <h3>Claude</h3>
     ${boolField(t("cfgEnabled"), "agents.claude.enabled", a.claude.enabled)}
     ${field(t("cfgCommand"), "agents.claude.command", a.claude.command)}
     ${field(t("cfgStable"), "agents.claude.stable_for", a.claude.stable_for)}
     ${field(t("cfgSettle"), "agents.claude.settle_for", a.claude.settle_for)}
     ${field(t("cfgTimeout"), "agents.claude.timeout", a.claude.timeout)}
+    ${field(t("cfgBusy"), "agents.claude.busy_pattern", a.claude.busy_pattern || "", "text", "(?i)esc to interrupt")}
   `;
 }
 

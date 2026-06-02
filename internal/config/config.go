@@ -8,6 +8,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -45,7 +46,18 @@ type Agent struct {
 	StableFor Duration `yaml:"stable_for" json:"stable_for"` // unchanged-screen duration that counts as "done"
 	SettleFor Duration `yaml:"settle_for" json:"settle_for"` // max wait for the response to START rendering
 	Timeout   Duration `yaml:"timeout" json:"timeout"`       // hard per-turn ceiling
+	// BusyPattern is a regexp matching the TUI's "working" status line (e.g. "esc
+	// to interrupt"). While the screen matches it, the turn is held as still
+	// in-progress regardless of stability, so a thinking/streaming agent that
+	// pauses with a static screen isn't mistaken for finished. Empty = built-in
+	// default (see DefaultBusyPattern); never matching is fine — Timeout backstops.
+	BusyPattern string `yaml:"busy_pattern" json:"busy_pattern"`
 }
+
+// DefaultBusyPattern matches both codex's and claude's working status line. Both
+// TUIs render "esc to interrupt" while a turn is active and drop it when idle.
+// Case-insensitive because codex sometimes capitalizes "Esc".
+const DefaultBusyPattern = `(?i)esc to interrupt`
 
 // FlowConfig controls the ping-pong loop and convergence.
 type FlowConfig struct {
@@ -69,20 +81,22 @@ func Default() Config {
 		Lang: "zh",
 		Agents: AgentConfig{
 			Codex: Agent{
-				Enabled:   true,
-				Command:   "/Applications/Codex.app/Contents/Resources/codex",
-				Poll:      Duration(500 * time.Millisecond),
-				StableFor: Duration(10 * time.Second),
-				SettleFor: Duration(30 * time.Second),
-				Timeout:   Duration(10 * time.Minute),
+				Enabled:     true,
+				Command:     "/Applications/Codex.app/Contents/Resources/codex",
+				Poll:        Duration(500 * time.Millisecond),
+				StableFor:   Duration(10 * time.Second),
+				SettleFor:   Duration(30 * time.Second),
+				Timeout:     Duration(10 * time.Minute),
+				BusyPattern: DefaultBusyPattern,
 			},
 			Claude: Agent{
-				Enabled:   true,
-				Command:   "claude --dangerously-skip-permissions",
-				Poll:      Duration(500 * time.Millisecond),
-				StableFor: Duration(10 * time.Second),
-				SettleFor: Duration(30 * time.Second),
-				Timeout:   Duration(10 * time.Minute),
+				Enabled:     true,
+				Command:     "claude --dangerously-skip-permissions",
+				Poll:        Duration(500 * time.Millisecond),
+				StableFor:   Duration(10 * time.Second),
+				SettleFor:   Duration(30 * time.Second),
+				Timeout:     Duration(10 * time.Minute),
+				BusyPattern: DefaultBusyPattern,
 			},
 		},
 		Flow: FlowConfig{
@@ -170,6 +184,11 @@ func validateAgent(name string, a Agent) error {
 	} {
 		if value <= 0 {
 			return fmt.Errorf("agents.%s.%s must be positive", name, field)
+		}
+	}
+	if a.BusyPattern != "" {
+		if _, err := regexp.Compile(a.BusyPattern); err != nil {
+			return fmt.Errorf("agents.%s.busy_pattern is not a valid regexp: %w", name, err)
 		}
 	}
 	return nil

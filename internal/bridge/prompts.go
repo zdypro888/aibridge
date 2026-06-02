@@ -105,7 +105,7 @@ func replyLangDirective(l Lang) string {
 //     verify-don't-guess, fix root causes (not just the diff), run the gates,
 //     keep edits uncommitted so the other reviewer can see them.
 const (
-	enRules = `Work like a zero-trust third-party auditor: ` +
+	enRules = `Work like a zero-trust third-party auditor, and aim for PERFECTION: every real problem must be fixed completely, no matter how small — never wave something off as "minor" or "not worth it". A latent edge case, a missing error check, an unhandled nil, a subtle race, a resource leak, a wrong comment that misleads — all count and all must be fixed properly. But "perfect" means correct, robust, and safe, NOT rewritten to your stylistic taste: code that has no real defect IS already perfect, so do not churn it. ` +
 		`(1) Read the actual code/docs before judging — do not guess APIs or behavior; verify. ` +
 		`(2) Do NOT trust the other reviewer's conclusions or edits — independently re-verify them. You are a DIFFERENT model, so you will catch blind spots the other one missed; that is the whole point of this loop. If one of their "fixes" is wrong or incomplete, correct it (but never undo a change that is actually correct). ` +
 		`(3) Look beyond the diff: if a real bug elsewhere is exposed or related, fix it too. ` +
@@ -133,7 +133,7 @@ const (
 		`Re-review ALL the current changes (git diff) — the entire set, regardless of who made which edit — and fix anything still wrong. ` +
 		`{{.ReplyLang}} {{.Verdict}}{{if .Ask}} {{.AskBlock}}{{end}}`
 
-	zhRules = `请以零信任的第三方审查员视角工作：` +
+	zhRules = `请以零信任的第三方审查员视角工作，并追求【完美】：任何真实的问题都必须彻底修复，无论多小——绝不能因为"不是大问题""不值得"就放过。潜在的边界情况、漏掉的错误检查、未处理的 nil、隐蔽的竞态、资源泄漏、会误导人的错误注释——统统算问题，都必须妥善修复。但"完美"指的是正确、健壮、安全，【不是】按你的风格喜好重写：没有真实缺陷的代码本来就是完美的，不要去折腾它。` +
 		`(1) 下结论前先读真实代码/文档，不要臆断 API 或行为，要查证；` +
 		`(2) 不要轻信另一个审查员的结论或改动——独立重新核验。你是【不同的模型】，能发现对方的盲区，这正是本循环的意义所在。如果它的"修复"是错的或不完整，就纠正（但绝不要撤销真正正确的改动）；` +
 		`(3) 不要只盯着 diff——如果发现相关或被牵连的真实 bug，一并修复；` +
@@ -170,7 +170,7 @@ const (
 		`You alternate sweeping the whole codebase — not just recent changes — each fixing real bugs the other may have missed, ` +
 		`and the loop continues until you both agree the entire codebase is clean with nothing genuinely left to improve. `
 
-	enFullRules = `Work like a zero-trust third-party auditor over the whole project: ` +
+	enFullRules = `Work like a zero-trust third-party auditor over the whole project, and aim for PERFECTION: every real problem must be fixed completely, no matter how small — never wave something off as "minor" or "not worth it". A latent edge case, a missing error check, an unhandled nil, a subtle race, a resource leak, a misleading comment — all count and all must be fixed properly. But "perfect" means correct, robust, and safe, NOT rewritten to your stylistic taste: code with no real defect IS already perfect, so do not churn it. ` +
 		`(1) Read the actual code/docs before judging — do not guess APIs or behavior; verify. ` +
 		`(2) Do NOT trust the other reviewer's conclusions or edits — independently re-verify them. You are a DIFFERENT model and will catch blind spots it missed; that is the whole point. Correct a wrong or incomplete "fix", but never undo a change that is actually correct. ` +
 		`(3) Sweep systematically: survey the source tree, and each turn pick the riskiest area not yet audited and read it in full — cover the entire codebase across the rounds, not a single file. ` +
@@ -191,7 +191,7 @@ const (
 	zhFullIntro = `你是两个 AI 代码审查员之一——codex 和 claude 是【两个不同的模型】，正在对整个仓库做全量审查、轮流进行，好让彼此发现对方遗漏的问题。` +
 		`你们交替遍历整个代码库（不只是最近的改动），各自修复对方可能遗漏的真实 bug，循环直到双方都认为整个代码库已经干净、没有任何真实可改进之处。`
 
-	zhFullRules = `请以零信任的第三方审查员视角，对整个项目工作：` +
+	zhFullRules = `请以零信任的第三方审查员视角，对整个项目工作，并追求【完美】：任何真实的问题都必须彻底修复，无论多小——绝不能因为"不是大问题""不值得"就放过。潜在的边界情况、漏掉的错误检查、未处理的 nil、隐蔽的竞态、资源泄漏、会误导人的注释——统统算问题，都必须妥善修复。但"完美"指的是正确、健壮、安全，【不是】按你的风格喜好重写：没有真实缺陷的代码本来就是完美的，不要去折腾它。` +
 		`(1) 下结论前先读真实代码/文档，不要臆断 API 或行为，要查证；` +
 		`(2) 不要轻信另一个审查员的结论或改动——独立重新核验。你是【不同的模型】，能发现它遗漏的盲区，这正是本循环的意义。纠正错误或不完整的"修复"，但绝不撤销真正正确的改动；` +
 		`(3) 系统性地遍历：先了解源码树结构，每一轮挑选尚未审查、风险最高的区域并完整读完——在多轮中覆盖整个代码库，而不是只看一个文件；` +

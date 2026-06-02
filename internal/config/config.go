@@ -45,7 +45,10 @@ type Agent struct {
 	Poll      Duration `yaml:"poll" json:"poll"`             // screen sample interval
 	StableFor Duration `yaml:"stable_for" json:"stable_for"` // unchanged-screen duration that counts as "done"
 	SettleFor Duration `yaml:"settle_for" json:"settle_for"` // max wait for the response to START rendering
-	Timeout   Duration `yaml:"timeout" json:"timeout"`       // hard per-turn ceiling
+	// Timeout is a STUCK detector, not a turn-length cap: it only fires after this
+	// long with NO activity (no busy marker AND no screen change). A working agent
+	// is never timed out, so a turn can legitimately run for hours. 0 = disabled.
+	Timeout Duration `yaml:"timeout" json:"timeout"`
 	// BusyPattern is a regexp matching the TUI's "working" status line (e.g. "esc
 	// to interrupt"). While the screen matches it, the turn is held as still
 	// in-progress regardless of stability, so a thinking/streaming agent that
@@ -180,11 +183,14 @@ func validateAgent(name string, a Agent) error {
 		"poll":       a.Poll,
 		"stable_for": a.StableFor,
 		"settle_for": a.SettleFor,
-		"timeout":    a.Timeout,
 	} {
 		if value <= 0 {
 			return fmt.Errorf("agents.%s.%s must be positive", name, field)
 		}
+	}
+	// timeout is a stuck detector; 0 disables it, negative is meaningless.
+	if a.Timeout < 0 {
+		return fmt.Errorf("agents.%s.timeout must be >= 0 (0 = disabled)", name)
 	}
 	if a.BusyPattern != "" {
 		if _, err := regexp.Compile(a.BusyPattern); err != nil {

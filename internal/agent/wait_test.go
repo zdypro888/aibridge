@@ -89,9 +89,11 @@ func TestWaitIdle_NoBusyStillWorks(t *testing.T) {
 	}
 }
 
-// TestWaitIdle_BusyTimeoutBackstops ensures a turn that stays Busy forever is
-// still bounded by Timeout (returns ErrTimeout, not a hang).
-func TestWaitIdle_BusyTimeoutBackstops(t *testing.T) {
+// TestWaitIdle_BusyNeverTimesOut verifies the key intent: a turn that keeps
+// showing the Busy marker is NEVER timed out, even long past Timeout — a
+// genuinely working agent (e.g. a multi-hour run) must not be cut off. The turn
+// only ends once Busy clears and the screen settles.
+func TestWaitIdle_BusyNeverTimesOut(t *testing.T) {
 	get, set := screenFn()
 	set("base")
 	set("thinking (esc to interrupt)")
@@ -99,12 +101,52 @@ func TestWaitIdle_BusyTimeoutBackstops(t *testing.T) {
 	opts := WaitOpts{
 		Poll:    5 * time.Millisecond,
 		Stable:  20 * time.Millisecond,
-		Settle:  200 * time.Millisecond,
-		Timeout: 80 * time.Millisecond,
+		Settle:  50 * time.Millisecond,
+		Timeout: 40 * time.Millisecond, // tiny: would fire fast if Busy didn't protect
+		Busy:    regexp.MustCompile(`esc to interrupt`),
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := WaitIdle(context.Background(), opts, "base", get)
+		done <- err
+	}()
+
+	// Far past Timeout while Busy stays up: must still be running.
+	select {
+	case err := <-done:
+		t.Fatalf("WaitIdle ended while busy (err=%v) — busy turns must not time out", err)
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	// Busy clears -> turn settles and returns cleanly (not a timeout).
+	set("done.\n> ")
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("expected clean idle after busy cleared, got %v", err)
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatal("WaitIdle did not return after busy cleared")
+	}
+}
+
+// TestWaitIdle_StuckTimesOut ensures the stuck detector still works: a turn that
+// shows NO activity (no Busy, screen frozen) for Timeout returns ErrTimeout.
+func TestWaitIdle_StuckTimesOut(t *testing.T) {
+	get, set := screenFn()
+	set("base")
+	set("partial output, then frozen with no busy marker")
+
+	opts := WaitOpts{
+		Poll:    5 * time.Millisecond,
+		Stable:  500 * time.Millisecond, // long, so stability wouldn't end it first
+		Settle:  50 * time.Millisecond,
+		Timeout: 60 * time.Millisecond,
 		Busy:    regexp.MustCompile(`esc to interrupt`),
 	}
 	_, err := WaitIdle(context.Background(), opts, "base", get)
 	if _, ok := err.(ErrTimeout); !ok {
-		t.Fatalf("expected ErrTimeout when busy never clears, got %v", err)
+		t.Fatalf("expected ErrTimeout for a stuck (no-activity) turn, got %v", err)
 	}
 }

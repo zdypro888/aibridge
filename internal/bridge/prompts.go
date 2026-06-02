@@ -114,20 +114,20 @@ const (
 		`(6) Do NOT commit or stage — leave your changes uncommitted in the work tree so the other reviewer can see them via git diff. `
 
 	enIntro = `You are one of two AI code reviewers taking turns on this repository. ` +
-		`You and the other agent alternate: each reviews the current state, fixes bugs the other may have missed, ` +
-		`and the loop continues until you both agree the code is clean. `
+		`You and the other agent alternate: each turn re-reviews ALL the current changes (the whole git diff, no matter who made which edit) and fixes any remaining problems, ` +
+		`and the loop continues until neither of you can find anything left to fix. `
 
 	enCodexFirst = enIntro + enRules +
-		`Start by running git diff (and git status) to see the current uncommitted changes, then review. ` +
+		`Start by running git diff (and git status) to see the current uncommitted changes, then review every one of them. ` +
 		`{{.ReplyLang}} {{.Verdict}}{{if .Ask}} {{.AskBlock}}{{end}}`
-	enCodexNext = `The other agent just reviewed the changes ({{.Handoff}}). ` + enRules +
-		`Re-check the current state (git diff), verify their edits are correct, and fix anything still wrong. ` +
+	enCodexNext = `The other agent just took a turn ({{.Handoff}}). ` + enRules +
+		`Re-review ALL the current changes (git diff) — the entire set, regardless of who made which edit — and fix anything still wrong. ` +
 		`{{.ReplyLang}} {{.Verdict}}{{if .Ask}} {{.AskBlock}}{{end}}`
 	enClaudeFirst = enIntro + enRules +
-		`Start by running git diff (and git status) to see the current uncommitted changes, then review. ` +
+		`Start by running git diff (and git status) to see the current uncommitted changes, then review every one of them. ` +
 		`{{.ReplyLang}} {{.Verdict}}{{if .Ask}} {{.AskBlock}}{{end}}`
-	enClaudeNext = `The other agent just reviewed (and may have edited) the code ({{.Handoff}}). ` + enRules +
-		`Re-check the current state (git diff), verify their edits are correct, and fix anything still wrong. ` +
+	enClaudeNext = `The other agent just took a turn ({{.Handoff}}). ` + enRules +
+		`Re-review ALL the current changes (git diff) — the entire set, regardless of who made which edit — and fix anything still wrong. ` +
 		`{{.ReplyLang}} {{.Verdict}}{{if .Ask}} {{.AskBlock}}{{end}}`
 
 	zhRules = `请以零信任的第三方审查员视角工作：` +
@@ -139,19 +139,19 @@ const (
 		`(6) 不要提交或暂存——把改动留在工作区未提交，好让另一个审查员通过 git diff 看到。`
 
 	zhIntro = `你是两个 AI 代码审查员之一，正在轮流审查本仓库。` +
-		`你和另一个 agent 交替进行：每人审查当前状态、修复对方可能遗漏的 bug，循环直到双方都认为代码干净。`
+		`你和另一个 agent 交替进行：每一轮都重新审查当前【全部】改动（整个 git diff，不管是谁改的）并修复仍存在的问题，循环直到双方都再也挑不出任何需要修改的地方为止。`
 
 	zhCodexFirst = zhIntro + zhRules +
-		`先运行 git diff（和 git status）查看当前未提交的改动，然后开始审查。` +
+		`先运行 git diff（和 git status）查看当前未提交的全部改动，然后逐一审查。` +
 		`{{.ReplyLang}} {{.Verdict}}{{if .Ask}} {{.AskBlock}}{{end}}`
-	zhCodexNext = `另一个 agent 刚审查了改动（{{.Handoff}}）。` + zhRules +
-		`重新检查当前状态（git diff），核对它的修改是否正确，并修复仍有问题的地方。` +
+	zhCodexNext = `另一个 agent 刚审查了一轮（{{.Handoff}}）。` + zhRules +
+		`重新审查当前【全部】改动（git diff）——整套改动，不管是谁改的——并修复仍有问题的地方。` +
 		`{{.ReplyLang}} {{.Verdict}}{{if .Ask}} {{.AskBlock}}{{end}}`
 	zhClaudeFirst = zhIntro + zhRules +
-		`先运行 git diff（和 git status）查看当前未提交的改动，然后开始审查。` +
+		`先运行 git diff（和 git status）查看当前未提交的全部改动，然后逐一审查。` +
 		`{{.ReplyLang}} {{.Verdict}}{{if .Ask}} {{.AskBlock}}{{end}}`
-	zhClaudeNext = `另一个 agent 刚审查（并可能修改）了代码（{{.Handoff}}）。` + zhRules +
-		`重新检查当前状态（git diff），核对它的修改是否正确，并修复仍有问题的地方。` +
+	zhClaudeNext = `另一个 agent 刚审查了一轮（{{.Handoff}}）。` + zhRules +
+		`重新审查当前【全部】改动（git diff）——整套改动，不管是谁改的——并修复仍有问题的地方。` +
 		`{{.ReplyLang}} {{.Verdict}}{{if .Ask}} {{.AskBlock}}{{end}}`
 )
 
@@ -175,8 +175,8 @@ const (
 	enFullFirst = enFullIntro + enFullRules +
 		`Begin the sweep now: survey the repository layout, then deep-read and audit the area you judge riskiest, fixing what you find. ` +
 		`{{.ReplyLang}} {{.Verdict}}{{if .Ask}} {{.AskBlock}}{{end}}`
-	enFullNext = `The other agent just audited part of the codebase ({{.Handoff}}). ` + enFullRules +
-		`Verify their edits (git diff), then continue the sweep into an area not yet covered and fix anything still wrong. ` +
+	enFullNext = `The other agent just took an audit turn ({{.Handoff}}). ` + enFullRules +
+		`Keep auditing the whole project: review the current changes (git diff) AND continue through code not yet covered, fixing anything still wrong. Stop only when nothing is left to fix. ` +
 		`{{.ReplyLang}} {{.Verdict}}{{if .Ask}} {{.AskBlock}}{{end}}`
 
 	zhFullIntro = `你是两个 AI 代码审查员之一，正在对整个仓库做全量审查，轮流进行。` +
@@ -193,8 +193,8 @@ const (
 	zhFullFirst = zhFullIntro + zhFullRules +
 		`现在开始遍历：先了解仓库结构，然后深入阅读并审查你判断风险最高的区域，发现问题就修复。` +
 		`{{.ReplyLang}} {{.Verdict}}{{if .Ask}} {{.AskBlock}}{{end}}`
-	zhFullNext = `另一个 agent 刚审查了代码库的一部分（{{.Handoff}}）。` + zhFullRules +
-		`先核对它的改动（git diff），然后继续遍历到尚未覆盖的区域，修复仍有问题的地方。` +
+	zhFullNext = `另一个 agent 刚审查了一轮（{{.Handoff}}）。` + zhFullRules +
+		`继续审查整个项目：既要审查当前已有的改动（git diff），也要继续遍历尚未覆盖的代码，修复仍有问题的地方。直到再也没有可修改的地方才停止。` +
 		`{{.ReplyLang}} {{.Verdict}}{{if .Ask}} {{.AskBlock}}{{end}}`
 )
 

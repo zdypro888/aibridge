@@ -192,7 +192,14 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleHandoff(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	repo := s.cfg.Repo
+	mode := s.cfg.Flow.ReviewMode
 	s.mu.Unlock()
+	// MCP mode passes the next prompt via the submit_review tool (no .aibridge
+	// files), so read it from the hub; handoff mode reads the files.
+	if bridge.ReviewMode(mode) == bridge.ModeMCP {
+		writeJSON(w, s.run.Hub().HandoffView())
+		return
+	}
 	writeJSON(w, bridge.ReadHandoffView(repo))
 }
 

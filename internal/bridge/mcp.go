@@ -93,13 +93,40 @@ type ReviewSubmission struct {
 // MCPHub routes submit_review calls (arriving on the HTTP MCP endpoint) to the
 // driver currently awaiting that side's turn result. Safe for concurrent use.
 type MCPHub struct {
-	mu      sync.Mutex
-	waiters map[string]chan ReviewSubmission // side -> the driver waiting for its result
+	mu       sync.Mutex
+	waiters  map[string]chan ReviewSubmission // side -> the driver waiting for its result
+	handedTo map[string]string                // peer side -> the next-turn prompt it was handed (for the dashboard)
+	conv     map[string]bool                  // peer side -> last submission declared it converged
 }
 
 // NewMCPHub returns an empty hub.
 func NewMCPHub() *MCPHub {
-	return &MCPHub{waiters: make(map[string]chan ReviewSubmission)}
+	return &MCPHub{
+		waiters:  make(map[string]chan ReviewSubmission),
+		handedTo: make(map[string]string),
+		conv:     make(map[string]bool),
+	}
+}
+
+// HandoffView returns what each side has been handed via MCP submit_review calls,
+// for the dashboard handoff panel (mcp mode has no .aibridge files to read).
+func (h *MCPHub) HandoffView() HandoffView {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return HandoffView{
+		Codex:           h.handedTo["codex"],
+		Claude:          h.handedTo["claude"],
+		CodexConverged:  h.conv["codex"],
+		ClaudeConverged: h.conv["claude"],
+	}
+}
+
+// Reset clears the per-run handoff cache so a new run starts blank.
+func (h *MCPHub) Reset() {
+	h.mu.Lock()
+	h.handedTo = make(map[string]string)
+	h.conv = make(map[string]bool)
+	h.mu.Unlock()
 }
 
 // await registers that side's driver is waiting for a submit_review and returns
@@ -124,9 +151,13 @@ func (h *MCPHub) cancelAwait(side string) {
 // deliver hands a submission to side's waiting driver. Returns false if nobody is
 // waiting (e.g. the agent called the tool when no turn expected it).
 func (h *MCPHub) deliver(side string, sub ReviewSubmission) bool {
+	peer := peerSide(side)
 	h.mu.Lock()
 	ch := h.waiters[side]
 	delete(h.waiters, side)
+	// Cache what the peer was handed, for the dashboard handoff panel.
+	h.handedTo[peer] = sub.NextForPeer
+	h.conv[peer] = sub.NoMoreBugs && sub.NextForPeer == ""
 	h.mu.Unlock()
 	if ch == nil {
 		return false

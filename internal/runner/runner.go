@@ -178,6 +178,7 @@ func (r *Runner) Start(cfg config.Config, tmpl promptlib.Template, resume Resume
 	// In MCP mode, write the per-repo MCP client config so each CLI connects back
 	// to our /mcp endpoint. Repo-scoped only — never touches global user config.
 	if bridge.ReviewMode(cfg.Flow.ReviewMode) == bridge.ModeMCP {
+		r.hub.Reset() // clear last run's handoff cache
 		if err := bridge.WriteMCPConfig(cfg.Repo, cfg.Server.Addr); err != nil {
 			clearRunning()
 			return fmt.Errorf("write mcp config: %w", err)

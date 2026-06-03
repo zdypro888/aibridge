@@ -91,6 +91,38 @@ func TestMCP_SubmitWithNoWaiterIsRecorded(t *testing.T) {
 	}
 }
 
+func TestMCP_HandoffViewCachesPeerPrompt(t *testing.T) {
+	h := NewMCPHub()
+	// codex submits with a next prompt for claude.
+	rpc(t, h, "codex", "tools/call", map[string]any{
+		"name": "submit_review",
+		"arguments": map[string]any{
+			"verdict":              "FIXED",
+			"next_prompt_for_peer": "verify the lock ordering",
+		},
+	}, 1)
+	v := h.HandoffView()
+	if v.Claude != "verify the lock ordering" {
+		t.Fatalf("claude should have been handed the prompt, got %q", v.Claude)
+	}
+	if v.ClaudeConverged {
+		t.Fatal("not converged (had a prompt)")
+	}
+	// claude submits empty + no_more_bugs -> codex marked converged.
+	rpc(t, h, "claude", "tools/call", map[string]any{
+		"name":      "submit_review",
+		"arguments": map[string]any{"verdict": "CLEAN", "no_more_bugs": true},
+	}, 2)
+	v = h.HandoffView()
+	if !v.CodexConverged {
+		t.Fatalf("codex should be marked converged, got %+v", v)
+	}
+	h.Reset()
+	if (h.HandoffView() != HandoffView{}) {
+		t.Fatal("Reset should clear the cache")
+	}
+}
+
 func TestMCP_UnknownSide404(t *testing.T) {
 	h := NewMCPHub()
 	req := httptest.NewRequest(http.MethodPost, "/mcp/bogus", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"ping"}`))

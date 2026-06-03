@@ -89,6 +89,33 @@ func peerSide(side string) string {
 	return "codex"
 }
 
+// completionNudge is a DELIBERATELY SHORT reminder sent when a finished turn is
+// missing its machine-required output (the verdict line, or in handoff mode the
+// peer's next-prompt file). It must stay tiny: a long turn may have triggered the
+// CLI's context compaction, dropping the original turn-start instructions — only
+// a short, self-contained nudge reliably survives a shrunken context. needFile
+// is set in handoff mode when no handoff file was written.
+func completionNudge(l Lang, peer string, needVerdict, needFile bool) string {
+	if l == LangZH {
+		s := "你这一轮似乎已完成,但还差机器必需的输出,请现在补上:"
+		if needFile {
+			s += " 把给 " + peer + " 下一轮的提示词写入文件 .aibridge/next-" + peer + ".md(没有可让对方查的就只写 CONVERGED);"
+		}
+		if needVerdict {
+			s += " 并在最后单独一行输出 token AUDIT_RESULT: 加 CLEAN 或 FIXED 或 ISSUES;"
+		}
+		return s
+	}
+	s := "Your turn looks finished but is missing required machine output. Do this now:"
+	if needFile {
+		s += " write the next-turn prompt for " + peer + " to the file .aibridge/next-" + peer + ".md (or just CONVERGED if nothing is left for them);"
+	}
+	if needVerdict {
+		s += " and output on a final line the token AUDIT_RESULT: followed by CLEAN or FIXED or ISSUES;"
+	}
+	return s
+}
+
 // handoffEssentials are the non-negotiable, machine-critical instructions that
 // MUST be present every handoff turn — because in handoff mode the turn's body is
 // the peer's free-form prompt, which won't contain them. It restates the core

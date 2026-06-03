@@ -106,26 +106,15 @@ func (d *AgentDriver) Review(ctx context.Context, handoff string, ask bool) (Rev
 		d.warmedUp = true
 	}
 
-	prompt := d.prompts.Render(handoff, ask)
-	baseline := d.ag.Screen()
-	// Submit in two steps. Both codex and Claude Code debounce fast input as a
-	// "paste burst": a long prompt followed immediately by \r makes the TUI treat
-	// the \r as a literal newline in the composer, so the prompt is never sent and
-	// the turn looks instantly idle. We write the text, let the paste-burst timer
-	// flush, THEN send Enter on its own so the TUI registers a real keypress.
-	if err := d.ag.Write([]byte(prompt)); err != nil {
-		return Review{}, fmt.Errorf("%s submit: %w", d.side, err)
-	}
-	select {
-	case <-ctx.Done():
-		return Review{}, ctx.Err()
-	case <-time.After(submitEnterDelay):
-	}
-	if err := d.ag.Write([]byte("\r")); err != nil {
-		return Review{}, fmt.Errorf("%s submit-enter: %w", d.side, err)
+	handoffMode := d.prompts != nil && d.prompts.mode == ModeHandoff
+	peer := peerSide(d.side)
+	// Clear any stale peer-handoff file so we only ever read what THIS turn wrote.
+	if handoffMode {
+		clearHandoff(d.repoDir, peer)
 	}
 
-	screen, err := agent.WaitIdle(ctx, d.wait, baseline, d.ag.Screen)
+	prompt := d.prompts.Render(handoff, ask)
+	screen, err := d.submitAndWait(ctx, prompt)
 	if err != nil {
 		debugf("%s WaitIdle err=%v", d.side, err)
 		dumpScreen(d.side, screen)
@@ -134,8 +123,44 @@ func (d *AgentDriver) Review(ctx context.Context, handoff string, ask bool) (Rev
 
 	verdict := parseVerdict(screen)
 	noMore := parseNoMoreBugs(screen)
-	debugf("%s verdict=%s noMoreBugs=%v", d.side, verdict, noMore)
+	hoPrompt, converged := "", false
+	if handoffMode {
+		hoPrompt, converged = readHandoff(d.repoDir, peer)
+	}
+
+	// Completion nudge: a long turn can trigger the CLI's context compaction,
+	// which drops the turn-start instructions — so the agent may finish without
+	// the machine-required output (verdict line; in handoff mode the peer file).
+	// Re-prompt with a SHORT, self-contained reminder (survives a shrunken
+	// context) and re-read, up to maxNudges times.
+	const maxNudges = 2
+	for n := range maxNudges {
+		needVerdict := verdict == VerdictUnknown
+		needFile := handoffMode && hoPrompt == "" && !converged
+		if !needVerdict && !needFile {
+			break
+		}
+		debugf("%s incomplete (needVerdict=%v needFile=%v); nudge %d", d.side, needVerdict, needFile, n+1)
+		nudge := completionNudge(d.prompts.lang, peer, needVerdict, needFile)
+		screen, err = d.submitAndWait(ctx, nudge)
+		if err != nil {
+			debugf("%s nudge WaitIdle err=%v", d.side, err)
+			break
+		}
+		if v := parseVerdict(screen); v != VerdictUnknown {
+			verdict = v
+		}
+		if parseNoMoreBugs(screen) {
+			noMore = true
+		}
+		if handoffMode {
+			if p, c := readHandoff(d.repoDir, peer); p != "" || c {
+				hoPrompt, converged = p, c
+			}
+		}
+	}
 	dumpScreen(d.side, screen)
+	debugf("%s verdict=%s noMoreBugs=%v converged=%v", d.side, verdict, noMore, converged)
 
 	hash, herr := gitx.Hash(d.repoDir)
 	if herr != nil {
@@ -143,27 +168,34 @@ func (d *AgentDriver) Review(ctx context.Context, handoff string, ask bool) (Rev
 	}
 
 	rev := Review{
-		Side:       d.side,
-		Verdict:    verdict,
-		Report:     tailLines(screen, 25),
-		DiffHash:   hash,
-		NoMoreBugs: noMore,
+		Side:           d.side,
+		Verdict:        verdict,
+		Report:         tailLines(screen, 25),
+		DiffHash:       hash,
+		NoMoreBugs:     noMore || converged, // CONVERGED folds into the no-more-bugs signal
+		HandoffForPeer: hoPrompt,
 	}
-
-	// Handoff mode: the agent wrote the peer's next-turn prompt (or CONVERGED) to
-	// .aibridge/next-<peer>.md. Read it from the file — a reliable channel, unlike
-	// scraping the scrolling screen. CONVERGED also counts as a "no more bugs"
-	// signal so the existing convergence logic applies unchanged.
-	if d.prompts != nil && d.prompts.mode == ModeHandoff {
-		peer := peerSide(d.side)
-		prompt, converged := readHandoff(d.repoDir, peer)
-		rev.HandoffForPeer = prompt
-		if converged {
-			rev.NoMoreBugs = true
-		}
-	}
-
 	return rev, nil
+}
+
+// submitAndWait writes text to the agent's pty (two-step to defeat paste-burst
+// debounce: text, pause, then Enter alone) and blocks until the turn goes idle.
+func (d *AgentDriver) submitAndWait(ctx context.Context, text string) (string, error) {
+	// Capture the baseline BEFORE submitting: WaitIdle detects the turn started by
+	// the screen diverging from this pre-submit snapshot.
+	baseline := d.ag.Screen()
+	if err := d.ag.Write([]byte(text)); err != nil {
+		return "", fmt.Errorf("%s submit: %w", d.side, err)
+	}
+	select {
+	case <-ctx.Done():
+		return "", ctx.Err()
+	case <-time.After(submitEnterDelay):
+	}
+	if err := d.ag.Write([]byte("\r")); err != nil {
+		return "", fmt.Errorf("%s submit-enter: %w", d.side, err)
+	}
+	return agent.WaitIdle(ctx, d.wait, baseline, d.ag.Screen)
 }
 
 // parseVerdict takes the LAST AUDIT_RESULT occurrence (the agent writes its real

@@ -68,8 +68,14 @@ func TestEndToEnd_PtyMockAgents(t *testing.T) {
 	}
 	time.Sleep(1 * time.Second)
 
+	// Plain mode: this test exercises the loop/convergence mechanics with mock
+	// agents that emit AUDIT_RESULT but don't write handoff files. Handoff mode is
+	// covered by unit tests; using it here would just make every turn burn the
+	// completion-nudge retries before falling back.
 	cps, _ := NewPromptSet(KindDiff, "codex", "", "", "en")
 	lps, _ := NewPromptSet(KindDiff, "claude", "", "", "en")
+	cps.SetMode(ModePlain)
+	lps.SetMode(ModePlain)
 	codexDrv := NewAgentDriver("codex", codexAg, repo, wait, cps)
 	claudeDrv := NewAgentDriver("claude", claudeAg, repo, wait, lps)
 

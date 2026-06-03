@@ -74,6 +74,18 @@ type FlowConfig struct {
 	// writes the next prompt for the other), "rotate" (program rotates a review
 	// lens), or "plain" (fixed templates). Empty = handoff. See bridge.ReviewMode.
 	ReviewMode string `yaml:"review_mode" json:"review_mode"`
+	// CodexRmcpFeature, in mcp review mode, controls whether the generated
+	// .codex/config.toml enables experimental_use_rmcp_client. Older codex needs
+	// it to reach HTTP MCP servers; newer codex supports HTTP MCP natively. On by
+	// default for compatibility; turn off only if a codex version rejects the
+	// unknown feature flag. Uses a pointer so an absent key means "default true".
+	CodexRmcpFeature *bool `yaml:"codex_rmcp_feature,omitempty" json:"codex_rmcp_feature,omitempty"`
+}
+
+// CodexRmcp reports whether to emit the experimental_use_rmcp_client feature,
+// defaulting to true when unset.
+func (f FlowConfig) CodexRmcp() bool {
+	return f.CodexRmcpFeature == nil || *f.CodexRmcpFeature
 }
 
 // ServerConfig controls the web dashboard.

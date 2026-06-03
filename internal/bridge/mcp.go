@@ -17,9 +17,12 @@ import (
 // .git/info/exclude so they don't pollute git diff.
 //   - claude: <repo>/.mcp.json (auto-loaded; trust prompt skipped under
 //     --dangerously-skip-permissions)
-//   - codex:  <repo>/.codex/config.toml (project-scoped; requires the rmcp
-//     feature, which we enable in the same file)
-func WriteMCPConfig(repoDir, addr string) error {
+//   - codex:  <repo>/.codex/config.toml (project-scoped). Older codex needed the
+//     experimental_use_rmcp_client feature to talk to HTTP MCP servers; newer
+//     codex supports it natively. rmcp controls whether we emit that flag (on by
+//     default for older-codex compatibility; harmless on versions that ignore it,
+//     but can be turned off if a future codex rejects unknown features).
+func WriteMCPConfig(repoDir, addr string, rmcp bool) error {
 	base := mcpBaseURL(addr)
 
 	// claude: .mcp.json
@@ -45,10 +48,11 @@ func WriteMCPConfig(repoDir, addr string) error {
 	if err := os.MkdirAll(codexDir, 0o755); err != nil {
 		return err
 	}
-	toml := "" +
-		"[features]\n" +
-		"experimental_use_rmcp_client = true\n\n" +
-		"[mcp_servers.aibridge]\n" +
+	toml := ""
+	if rmcp {
+		toml += "[features]\nexperimental_use_rmcp_client = true\n\n"
+	}
+	toml += "[mcp_servers.aibridge]\n" +
 		fmt.Sprintf("url = %q\n", base+"/mcp/codex")
 	if err := os.WriteFile(filepath.Join(codexDir, "config.toml"), []byte(toml), 0o644); err != nil {
 		return err

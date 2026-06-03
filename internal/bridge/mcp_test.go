@@ -138,7 +138,7 @@ func TestWriteMCPConfig_RepoScopedAndExcluded(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(repo, ".git", "info"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := WriteMCPConfig(repo, "127.0.0.1:8799"); err != nil {
+	if err := WriteMCPConfig(repo, "127.0.0.1:8799", true); err != nil {
 		t.Fatalf("WriteMCPConfig: %v", err)
 	}
 	// claude .mcp.json points at our endpoint
@@ -164,6 +164,20 @@ func TestWriteMCPConfig_RepoScopedAndExcluded(t *testing.T) {
 		if !strings.Contains(string(excl), want) {
 			t.Fatalf("exclude missing %q: %s", want, excl)
 		}
+	}
+}
+
+func TestWriteMCPConfig_RmcpToggle(t *testing.T) {
+	repo := t.TempDir()
+	if err := WriteMCPConfig(repo, "127.0.0.1:8799", false); err != nil {
+		t.Fatal(err)
+	}
+	ts, _ := os.ReadFile(filepath.Join(repo, ".codex", "config.toml"))
+	if strings.Contains(string(ts), "experimental_use_rmcp_client") {
+		t.Fatalf("rmcp=false should omit the feature flag: %s", ts)
+	}
+	if !strings.Contains(string(ts), "/mcp/codex") {
+		t.Fatalf("endpoint still required: %s", ts)
 	}
 }
 

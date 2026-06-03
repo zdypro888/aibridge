@@ -239,6 +239,46 @@ func defaultPrompts(kind ReviewKind, side string, l Lang) (first, next string) {
 	}
 }
 
+// reviewFocusEN/ZH are rotating per-turn "lenses". Each turn Render appends one,
+// advancing through the list, so successive turns deep-dive different dimensions
+// instead of re-running one fixed viewpoint. This fights premature convergence:
+// a single lens exhausts its findings and both agents declare "clean", yet a
+// fresh lens routinely surfaces new bugs (exactly what a human notices when they
+// "look again from another angle"). It does NOT hurt convergence — with no real
+// bug a lens still changes nothing, so the diff stays stable; but "converged"
+// now means several DIFFERENT lenses in a row found nothing, a far stronger bar.
+var reviewFocusEN = []string{
+	"concurrency and data races (goroutines, shared state, locks, channel/deadlock, ordering)",
+	"error handling and propagation (ignored errors, wrong/over-broad wrapping, partial failure, panics)",
+	"edge cases and boundaries (nil, empty, zero value, overflow, off-by-one, unicode, large input)",
+	"resource lifecycle (leaks, missing Close/defer, context cancellation, timeouts, cleanup on error path)",
+	"API contracts and misuse (wrong assumptions, undocumented behavior, breaking callers, validation of inputs)",
+	"data integrity and state invariants (validation, concurrent updates, persistence, consistency)",
+	"security (injection, path traversal, secrets, authz/authn, unsafe handling of untrusted input)",
+	"logic correctness (algorithm, conditionals, intent vs implementation, dead/unreachable code)",
+}
+
+var reviewFocusZH = []string{
+	"并发与数据竞争（goroutine、共享状态、锁、channel/死锁、执行顺序）",
+	"错误处理与传播（被忽略的 error、错误或过宽的 wrap、部分失败、panic）",
+	"边界与极端情况（nil、空、零值、溢出、off-by-one、unicode、超大输入）",
+	"资源生命周期（泄漏、漏 Close/defer、context 取消、超时、错误路径上的清理）",
+	"API 契约与误用（错误假设、未文档化行为、破坏调用方、输入校验）",
+	"数据完整性与状态不变量（校验、并发更新、持久化、一致性）",
+	"安全（注入、路径穿越、密钥、鉴权/认证、不可信输入的不安全处理）",
+	"逻辑正确性（算法、条件分支、意图与实现是否一致、死代码/不可达代码）",
+}
+
+// focusInstruction returns the rotating per-turn lens directive for turn n.
+func focusInstruction(l Lang, n int) string {
+	if l == LangZH {
+		f := reviewFocusZH[n%len(reviewFocusZH)]
+		return "本轮在通用审查之上，请【重点深挖】这个维度：" + f + "。（其它维度同样不能放过，只是这一轮额外加强这一面。）"
+	}
+	f := reviewFocusEN[n%len(reviewFocusEN)]
+	return "This turn, on top of the general review, give EXTRA focus to this dimension: " + f + ". (Don't ignore the others — just press harder on this one this round.)"
+}
+
 // PromptSet is one side's configured (or default) templates, precompiled, bound
 // to a language for the instruction blocks.
 type PromptSet struct {
@@ -246,6 +286,7 @@ type PromptSet struct {
 	next      *template.Template
 	lang      Lang
 	askPrompt string
+	turn      int // advances each Render; selects the rotating review focus
 }
 
 // NewPromptSet compiles a side's templates for the given language, falling back
@@ -272,7 +313,13 @@ func NewPromptSet(kind ReviewKind, side, first, next, lang string, askPrompt ...
 	if err != nil {
 		return nil, err
 	}
-	return &PromptSet{first: ft, next: nt, lang: l, askPrompt: ask}, nil
+	// Offset the focus rotation per side so codex and claude examine DIFFERENT
+	// lenses in the same round — doubling the diversity of viewpoints per round.
+	turn := 0
+	if side == "claude" {
+		turn = len(reviewFocusEN) / 2
+	}
+	return &PromptSet{first: ft, next: nt, lang: l, askPrompt: ask, turn: turn}, nil
 }
 
 type promptData struct {
@@ -303,6 +350,12 @@ func (p *PromptSet) Render(handoff string, ask bool) string {
 		return flatten("Review the current git diff for bugs and fix what you can. " + verdictInstruction(p.lang))
 	}
 	out := flatten(buf.String())
+
+	// Rotate the per-turn review focus so each turn deep-dives a different
+	// dimension (fights premature convergence). Appended before the verdict so
+	// the machine token stays last. Advance the counter every turn, per side.
+	out = flatten(out + " " + focusInstruction(p.lang, p.turn))
+	p.turn++
 
 	// Force the machine-parseable verdict onto the end even if a custom template
 	// forgot it — without it the bridge can never detect convergence. We append

@@ -80,6 +80,65 @@ func TestRenderForcesVerdict(t *testing.T) {
 	}
 }
 
+// TestRenderRotatesFocus verifies each turn appends a different review lens and
+// the rotation wraps around the full list (fighting premature convergence).
+func TestRenderRotatesFocus(t *testing.T) {
+	ps, err := NewPromptSet(KindDiff, "codex", "", "", "en")
+	if err != nil {
+		t.Fatalf("NewPromptSet: %v", err)
+	}
+	n := len(reviewFocusEN)
+	seen := map[string]bool{}
+	var firstCycle []string
+	for i := range n {
+		out := ps.Render("handoff", false)
+		// exactly one focus dimension must be present this turn
+		hit := ""
+		for _, f := range reviewFocusEN {
+			if strings.Contains(out, f) {
+				if hit != "" {
+					t.Fatalf("turn %d contains two focus lenses", i)
+				}
+				hit = f
+			}
+		}
+		if hit == "" {
+			t.Fatalf("turn %d has no focus lens: %q", i, out)
+		}
+		seen[hit] = true
+		firstCycle = append(firstCycle, hit)
+	}
+	if len(seen) != n {
+		t.Fatalf("expected all %d lenses across a full cycle, got %d distinct", n, len(seen))
+	}
+	// Next turn wraps back to the first lens of the cycle.
+	if got := ps.Render("handoff", false); !strings.Contains(got, firstCycle[0]) {
+		t.Fatalf("rotation should wrap to the first lens, got %q", got)
+	}
+}
+
+// TestRenderFocusDiffersPerSide verifies codex and claude start on different
+// lenses in the same round (per-side offset), doubling viewpoint diversity.
+func TestRenderFocusDiffersPerSide(t *testing.T) {
+	cx, _ := NewPromptSet(KindDiff, "codex", "", "", "en")
+	cl, _ := NewPromptSet(KindDiff, "claude", "", "", "en")
+	lensOf := func(out string) string {
+		for _, f := range reviewFocusEN {
+			if strings.Contains(out, f) {
+				return f
+			}
+		}
+		return ""
+	}
+	a, b := lensOf(cx.Render("h", false)), lensOf(cl.Render("h", false))
+	if a == "" || b == "" {
+		t.Fatalf("missing lens: codex=%q claude=%q", a, b)
+	}
+	if a == b {
+		t.Fatalf("codex and claude should start on different lenses, both got %q", a)
+	}
+}
+
 // TestRenderDefaultNoDuplicateVerdict makes sure a well-formed default template
 // (which already ends with the verdict instruction) is NOT given a second copy
 // by the force-append. We can't count the token "AUDIT_RESULT" because the human

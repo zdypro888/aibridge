@@ -334,6 +334,7 @@ const I18N = {
     cfgGeneral: "General", cfgRepo: "Repo path", cfgUILang: "Agent / report language",
     cfgAddr: "Web addr", cfgFlow: "Flow", cfgFirst: "First reviewer",
     cfgMaxRounds: "Max rounds (0 = unlimited)", cfgStrategy: "Convergence strategy",
+    cfgReviewMode: "Review mode",
     cfgEnabled: "Enabled", cfgCommand: "Command", cfgStable: "Stable for", cfgSettle: "Settle for",
     cfgTimeout: "Stuck timeout (0=off)",
     cfgBusy: "Busy pattern (regex)",
@@ -367,6 +368,7 @@ const I18N = {
     cfgGeneral: "通用", cfgRepo: "仓库路径", cfgUILang: "AI / 报告语言",
     cfgAddr: "Web 地址", cfgFlow: "流程", cfgFirst: "谁先审",
     cfgMaxRounds: "最大轮次 (0 = 无限)", cfgStrategy: "收敛策略",
+    cfgReviewMode: "审查模式",
     cfgEnabled: "启用", cfgCommand: "启动命令", cfgStable: "稳定判定", cfgSettle: "等待启动",
     cfgTimeout: "卡死超时(0=关闭)",
     cfgBusy: "忙碌标志(正则)",
@@ -689,6 +691,7 @@ function renderConfig(cfg) {
     ${selectField(t("cfgFirst"), "flow.first", f.first, ["codex", "claude"])}
     ${field(t("cfgMaxRounds"), "flow.max_rounds", f.max_rounds)}
     ${selectField(t("cfgStrategy"), "flow.strategy", f.strategy, ["combined", "diff-fixpoint", "ask-gate"])}
+    ${selectField(t("cfgReviewMode"), "flow.review_mode", f.review_mode || "handoff", ["handoff", "rotate", "plain"])}
     <h3>Codex</h3>
     ${boolField(t("cfgEnabled"), "agents.codex.enabled", a.codex.enabled)}
     ${field(t("cfgCommand"), "agents.codex.command", a.codex.command)}

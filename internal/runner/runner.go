@@ -167,6 +167,10 @@ func (r *Runner) Start(cfg config.Config, tmpl promptlib.Template, resume Resume
 		return fmt.Errorf("%s is not a git work tree", cfg.Repo)
 	}
 
+	// Prepare the handoff exchange dir and clear any stale handoff files from a
+	// previous run so the first turn never reads an old peer prompt.
+	bridge.PrepareHandoff(cfg.Repo)
+
 	codexDrv, claudeDrv, agents, cleanup, err := r.buildDrivers(cfg, tmpl, resume)
 	if err != nil {
 		clearRunning()
@@ -242,6 +246,7 @@ func (r *Runner) buildDrivers(cfg config.Config, tmpl promptlib.Template, resume
 		if perr != nil {
 			return nil, fmt.Errorf("%s prompt template: %w", side, perr)
 		}
+		ps.SetMode(bridge.ReviewMode(cfg.Flow.ReviewMode))
 		res := resume.Codex
 		if side == "claude" {
 			res = resume.Claude

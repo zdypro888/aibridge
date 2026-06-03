@@ -23,6 +23,11 @@ type Review struct {
 	Report     string  // the agent's prose output (relayed to the other side / shown to user)
 	DiffHash   string  // hash of the work tree AFTER this turn
 	NoMoreBugs bool    // ask-gate: the agent explicitly confirmed there are no remaining bugs
+	// HandoffForPeer, in handoff mode, is the free-form next-turn prompt this
+	// agent wrote (to .aibridge/next-<peer>.md) for the OTHER agent. Empty in
+	// other modes or if the agent wrote nothing. When set, the loop feeds it to
+	// the peer's next turn instead of the generated short note.
+	HandoffForPeer string
 }
 
 // Driver is one reviewer the bridge can hand work to and read a result back from.

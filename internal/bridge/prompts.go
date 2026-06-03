@@ -53,6 +53,65 @@ func normKind(s string) ReviewKind {
 	return KindDiff
 }
 
+// ReviewMode selects how each turn's "what to look at next" is decided.
+type ReviewMode string
+
+const (
+	// ModeHandoff: each agent writes the NEXT prompt for the other agent into a
+	// .aibridge handoff file; the peer's written prompt becomes its next turn's
+	// body. The agent writes the CONVERGED sentinel when it has nothing left for
+	// the peer. This is the default — the peer, having just reviewed, decides the
+	// next focus from the real state of the code.
+	ModeHandoff ReviewMode = "handoff"
+	// ModeRotate: the program appends a rotating per-turn review lens.
+	ModeRotate ReviewMode = "rotate"
+	// ModePlain: fixed templates only, no dynamic focus.
+	ModePlain ReviewMode = "plain"
+)
+
+// normMode defaults blank/unknown to handoff.
+func normMode(s string) ReviewMode {
+	switch ReviewMode(s) {
+	case ModeRotate:
+		return ModeRotate
+	case ModePlain:
+		return ModePlain
+	default:
+		return ModeHandoff
+	}
+}
+
+// peerSide returns the other agent's name.
+func peerSide(side string) string {
+	if side == "codex" {
+		return "claude"
+	}
+	return "codex"
+}
+
+// handoffEssentials are the non-negotiable, machine-critical instructions that
+// MUST be present every handoff turn — because in handoff mode the turn's body is
+// the peer's free-form prompt, which won't contain them. It restates the core
+// doctrine compactly and tells the agent to write the next prompt for the peer.
+func handoffEssentials(l Lang, peer string) string {
+	if l == LangZH {
+		return "【铁律,必须遵守】" +
+			"(a) 独立核验,不要轻信对方结论;你是不同的模型,要发现它的盲区。" +
+			"(b) 只为修复真实、具体的问题才改代码——不要重写/重排版/改名/整理本来就好的代码(无意义改动会让循环无法收敛);没真问题就什么都不要改。" +
+			"(c) 追求完美:任何真实问题无论多小都要彻底修复;但没有真实缺陷的代码本来就是完美的,不要折腾。" +
+			"(d) 不要 commit 或 stage,把改动留在工作区。" +
+			"(e) 干完后,把【写给另一个审查员(" + peer + ")下一轮的提示词】用文件写入路径 .aibridge/next-" + peer + ".md ——具体告诉它下一轮该重点查哪里、为什么可疑。" +
+			"如果你确信对方已经没有任何值得再查的地方,就只把这一个词 CONVERGED 写进该文件。"
+	}
+	return "[NON-NEGOTIABLE RULES] " +
+		"(a) Verify independently; do not trust the other reviewer's conclusions — you are a different model and must catch its blind spots. " +
+		"(b) Change code ONLY to fix a real, concrete problem — never rewrite/reformat/rename/tidy code that already works (cosmetic churn stops the loop from ever converging); if nothing is genuinely wrong, change nothing. " +
+		"(c) Pursue perfection: fix every real problem no matter how small; but code with no real defect is already perfect — do not churn it. " +
+		"(d) Do NOT commit or stage; leave changes in the work tree. " +
+		"(e) When done, WRITE THE NEXT-TURN PROMPT FOR THE OTHER REVIEWER (" + peer + ") to the file .aibridge/next-" + peer + ".md — tell it specifically what to review next and why it's suspect. " +
+		"If you are confident the other side has nothing left worth reviewing, write ONLY the single word CONVERGED into that file instead."
+}
+
 // verdictInstruction returns the language-appropriate instruction for ending the
 // reply with a parseable verdict line. The token stays in ASCII.
 func verdictInstruction(l Lang) string {
@@ -285,9 +344,14 @@ type PromptSet struct {
 	first     *template.Template
 	next      *template.Template
 	lang      Lang
+	side      string
+	mode      ReviewMode
 	askPrompt string
 	turn      int // advances each Render; selects the rotating review focus
 }
+
+// SetMode selects the review mode for this set (default handoff if unset).
+func (p *PromptSet) SetMode(m ReviewMode) { p.mode = normMode(string(m)) }
 
 // NewPromptSet compiles a side's templates for the given language, falling back
 // to that language's built-in defaults when a string is empty. Returns an error
@@ -319,7 +383,7 @@ func NewPromptSet(kind ReviewKind, side, first, next, lang string, askPrompt ...
 	if side == "claude" {
 		turn = len(reviewFocusEN) / 2
 	}
-	return &PromptSet{first: ft, next: nt, lang: l, askPrompt: ask, turn: turn}, nil
+	return &PromptSet{first: ft, next: nt, lang: l, side: side, mode: ModeHandoff, askPrompt: ask, turn: turn}, nil
 }
 
 type promptData struct {
@@ -331,12 +395,9 @@ type promptData struct {
 }
 
 // Render builds the prompt for a turn. handoff=="" selects the first-turn
-// template. The result is flattened to a single line.
+// template. In handoff mode a non-empty handoff IS the peer's written next-turn
+// prompt and becomes the body. The result is flattened to a single line.
 func (p *PromptSet) Render(handoff string, ask bool) string {
-	tmpl := p.next
-	if strings.TrimSpace(handoff) == "" {
-		tmpl = p.first
-	}
 	data := promptData{
 		Handoff:   handoff,
 		Ask:       ask,
@@ -344,18 +405,40 @@ func (p *PromptSet) Render(handoff string, ask bool) string {
 		AskBlock:  askInstruction(p.lang, p.askPrompt),
 		ReplyLang: replyLangDirective(p.lang),
 	}
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, data); err != nil {
-		// On a render error fall back to a minimal safe prompt rather than crash.
-		return flatten("Review the current git diff for bugs and fix what you can. " + verdictInstruction(p.lang))
-	}
-	out := flatten(buf.String())
 
-	// Rotate the per-turn review focus so each turn deep-dives a different
-	// dimension (fights premature convergence). Appended before the verdict so
-	// the machine token stays last. Advance the counter every turn, per side.
-	out = flatten(out + " " + focusInstruction(p.lang, p.turn))
-	p.turn++
+	var out string
+	if p.mode == ModeHandoff && strings.TrimSpace(handoff) != "" {
+		// Body = the peer's free-form prompt written to the handoff file. We do
+		// NOT run a template over it (it's already a complete instruction); we add
+		// the machine-critical essentials + language directive, which the peer's
+		// free text won't contain.
+		out = flatten(handoff + " " + data.ReplyLang)
+	} else {
+		// First turn (or non-handoff mode): render the configured template.
+		tmpl := p.next
+		if strings.TrimSpace(handoff) == "" {
+			tmpl = p.first
+		}
+		var buf bytes.Buffer
+		if err := tmpl.Execute(&buf, data); err != nil {
+			// On a render error fall back to a minimal safe prompt rather than crash.
+			return flatten("Review the current git diff for bugs and fix what you can. " + verdictInstruction(p.lang))
+		}
+		out = flatten(buf.String())
+	}
+
+	switch p.mode {
+	case ModeHandoff:
+		// Restate the non-negotiable doctrine + tell the agent to write the next
+		// prompt for the peer. Required because in handoff mode the body is the
+		// peer's free text, which won't carry these.
+		out = flatten(out + " " + handoffEssentials(p.lang, peerSide(p.side)))
+	case ModeRotate:
+		// Rotate a per-turn lens so successive turns deep-dive different
+		// dimensions (fights premature convergence). Per side, advancing.
+		out = flatten(out + " " + focusInstruction(p.lang, p.turn))
+		p.turn++
+	}
 
 	// Force the machine-parseable verdict onto the end even if a custom template
 	// forgot it — without it the bridge can never detect convergence. We append

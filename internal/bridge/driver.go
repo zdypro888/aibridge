@@ -142,13 +142,28 @@ func (d *AgentDriver) Review(ctx context.Context, handoff string, ask bool) (Rev
 		hash = ""
 	}
 
-	return Review{
+	rev := Review{
 		Side:       d.side,
 		Verdict:    verdict,
 		Report:     tailLines(screen, 25),
 		DiffHash:   hash,
 		NoMoreBugs: noMore,
-	}, nil
+	}
+
+	// Handoff mode: the agent wrote the peer's next-turn prompt (or CONVERGED) to
+	// .aibridge/next-<peer>.md. Read it from the file — a reliable channel, unlike
+	// scraping the scrolling screen. CONVERGED also counts as a "no more bugs"
+	// signal so the existing convergence logic applies unchanged.
+	if d.prompts != nil && d.prompts.mode == ModeHandoff {
+		peer := peerSide(d.side)
+		prompt, converged := readHandoff(d.repoDir, peer)
+		rev.HandoffForPeer = prompt
+		if converged {
+			rev.NoMoreBugs = true
+		}
+	}
+
+	return rev, nil
 }
 
 // parseVerdict takes the LAST AUDIT_RESULT occurrence (the agent writes its real

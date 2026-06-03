@@ -87,6 +87,7 @@ func TestRenderRotatesFocus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewPromptSet: %v", err)
 	}
+	ps.SetMode(ModeRotate)
 	n := len(reviewFocusEN)
 	seen := map[string]bool{}
 	var firstCycle []string
@@ -122,6 +123,8 @@ func TestRenderRotatesFocus(t *testing.T) {
 func TestRenderFocusDiffersPerSide(t *testing.T) {
 	cx, _ := NewPromptSet(KindDiff, "codex", "", "", "en")
 	cl, _ := NewPromptSet(KindDiff, "claude", "", "", "en")
+	cx.SetMode(ModeRotate)
+	cl.SetMode(ModeRotate)
 	lensOf := func(out string) string {
 		for _, f := range reviewFocusEN {
 			if strings.Contains(out, f) {
@@ -167,6 +170,9 @@ func TestPrompts_CustomTemplate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
+	// plain mode: the configured next template is used verbatim (handoff mode
+	// would instead replace the body with the peer's written prompt).
+	ps.SetMode(ModePlain)
 	if p := ps.Render("", false); !strings.HasPrefix(p, "CUSTOM first") {
 		t.Errorf("custom first template not used: %q", p)
 	}

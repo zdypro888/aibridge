@@ -112,7 +112,13 @@ func Run(ctx context.Context, cfg Config, d Deps) (Outcome, error) {
 
 		changed := rev.DiffHash != prevHash
 		prevHash = rev.DiffHash
-		lastHandoff = buildHandoff(rev, changed)
+		// In handoff mode the agent wrote the peer's next prompt to a file; use it
+		// verbatim. Otherwise fall back to the short generated note.
+		if rev.HandoffForPeer != "" {
+			lastHandoff = rev.HandoffForPeer
+		} else {
+			lastHandoff = buildHandoff(rev, changed)
+		}
 
 		strat.Observe(rev, changed)
 

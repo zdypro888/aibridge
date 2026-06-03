@@ -350,6 +350,7 @@ const I18N = {
     cfgAddr: "Web addr", cfgFlow: "Flow", cfgFirst: "First reviewer",
     cfgMaxRounds: "Max rounds (0 = unlimited)", cfgStrategy: "Convergence strategy",
     cfgReviewMode: "Review mode",
+    tmplModeHint: "handoff/mcp: the peer writes each next-turn prompt (only the first-turn fields apply). rotate/plain: first + next fields both apply.",
     hoEmpty: "(waiting…)", hoConverged: "✓ nothing left",
     cfgEnabled: "Enabled", cfgCommand: "Command", cfgStable: "Stable for", cfgSettle: "Settle for",
     cfgTimeout: "Stuck timeout (0=off)",
@@ -385,6 +386,7 @@ const I18N = {
     cfgAddr: "Web 地址", cfgFlow: "流程", cfgFirst: "谁先审",
     cfgMaxRounds: "最大轮次 (0 = 无限)", cfgStrategy: "收敛策略",
     cfgReviewMode: "审查模式",
+    tmplModeHint: "handoff/mcp:下一轮提示词由对方现场写(只有首轮字段生效)。rotate/plain:首轮+后续轮都生效。",
     hoEmpty: "(等待中…)", hoConverged: "✓ 没有可查的了",
     cfgEnabled: "启用", cfgCommand: "启动命令", cfgStable: "稳定判定", cfgSettle: "等待启动",
     cfgTimeout: "卡死超时(0=关闭)",
@@ -727,7 +729,6 @@ function renderConfig(cfg) {
     ${selectField(t("cfgFirst"), "flow.first", f.first, ["codex", "claude"])}
     ${field(t("cfgMaxRounds"), "flow.max_rounds", f.max_rounds)}
     ${selectField(t("cfgStrategy"), "flow.strategy", f.strategy, ["combined", "diff-fixpoint", "ask-gate"])}
-    ${selectField(t("cfgReviewMode"), "flow.review_mode", f.review_mode || "handoff", ["handoff", "mcp", "rotate", "plain"])}
     <h3>Codex</h3>
     ${boolField(t("cfgEnabled"), "agents.codex.enabled", a.codex.enabled)}
     ${field(t("cfgCommand"), "agents.codex.command", a.codex.command)}
@@ -764,9 +765,15 @@ async function loadDefaultsFor(kind) {
   TDEF = (await api("/api/defaults?lang=" + encodeURIComponent(lang) + "&kind=" + encodeURIComponent(kind || "")).catch(() => ({}))) || {};
 }
 
+// tMode holds the review mode shown/edited in the prompts dialog (saved to config
+// on Save). Loaded from CFG when the dialog opens.
+let tMode = "handoff";
+
 async function openTemplates() {
   TLIB = await api("/api/templates");
   tSel = TLIB.active;
+  if (!CFG) { try { CFG = await api("/api/config"); } catch {} }
+  tMode = (CFG && CFG.flow && CFG.flow.review_mode) || "handoff";
   await renderTmpl();
   $("tmplDialog").showModal();
 }
@@ -778,12 +785,20 @@ async function renderTmpl() {
   const ro = TBUILTIN.includes(tpl.id);
   const roA = ro ? " readonly" : "";
   const cx = tpl.codex || {}, cl = tpl.claude || {}, d = TDEF;
+  // In handoff/mcp modes the "next turn" prompt is supplied by the peer each
+  // round, so those template fields are unused — hide them. rotate/plain use them.
+  const showNext = tMode === "rotate" || tMode === "plain";
   const opts = (TLIB.templates || [])
     .map((x) => `<option value="${esc(x.id)}" ${x.id === tSel ? "selected" : ""}>${esc(x.name || x.id)}</option>`)
+    .join("");
+  const modeOpts = ["handoff", "mcp", "rotate", "plain"]
+    .map((m) => `<option value="${m}" ${m === tMode ? "selected" : ""}>${m}</option>`)
     .join("");
   const ta = (id, val, ph) => `<textarea id="${id}"${roA} placeholder="${esc(ph || "")}">${esc(val || "")}</textarea>`;
   $("tmplFields").innerHTML = `
     <h3>${t("templates")}</h3>
+    <label>${t("cfgReviewMode")}</label><select id="tmplMode">${modeOpts}</select>
+    <label></label><small style="color:var(--muted)">${t("tmplModeHint")}</small>
     <label>${t("tmplActive")}</label>
     <div style="display:flex;gap:8px;align-items:center">
       <select id="tmplSel" style="flex:1">${opts}</select>
@@ -793,11 +808,12 @@ async function renderTmpl() {
     ${ro ? `<label></label><small style="color:var(--muted)">${t("tmplDefaultHint")}</small>` : ""}
     <label>${t("tmplName")}</label><input id="tmplName" value="${esc(tpl.name || "")}"${roA} />
     <label>${t("tmplCodexFirst")}</label>${ta("tmplCxFirst", cx.first, d.codex && d.codex.first)}
-    <label>${t("tmplCodexNext")}</label>${ta("tmplCxNext", cx.next, d.codex && d.codex.next)}
+    ${showNext ? `<label>${t("tmplCodexNext")}</label>${ta("tmplCxNext", cx.next, d.codex && d.codex.next)}` : ""}
     <label>${t("tmplClaudeFirst")}</label>${ta("tmplClFirst", cl.first, d.claude && d.claude.first)}
-    <label>${t("tmplClaudeNext")}</label>${ta("tmplClNext", cl.next, d.claude && d.claude.next)}
+    ${showNext ? `<label>${t("tmplClaudeNext")}</label>${ta("tmplClNext", cl.next, d.claude && d.claude.next)}` : ""}
     <label>${t("tmplAsk")}</label>${ta("tmplAsk", tpl.ask, "")}
   `;
+  $("tmplMode").onchange = () => { captureTmpl(); tMode = $("tmplMode").value; renderTmpl(); };
   $("tmplSel").onchange = async () => { captureTmpl(); tSel = $("tmplSel").value; await renderTmpl(); };
   $("tmplNew").onclick = () => {
     captureTmpl();
@@ -823,8 +839,10 @@ function captureTmpl() {
   const tpl = tplById(tSel);
   if (!tpl || TBUILTIN.includes(tpl.id)) return;
   if ($("tmplName")) tpl.name = $("tmplName").value;
-  if ($("tmplCxFirst")) tpl.codex = { first: $("tmplCxFirst").value, next: $("tmplCxNext").value };
-  if ($("tmplClFirst")) tpl.claude = { first: $("tmplClFirst").value, next: $("tmplClNext").value };
+  // The "next" fields may be hidden (handoff/mcp); preserve their stored value
+  // when absent rather than wiping it.
+  if ($("tmplCxFirst")) tpl.codex = { first: $("tmplCxFirst").value, next: $("tmplCxNext") ? $("tmplCxNext").value : (tpl.codex && tpl.codex.next) || "" };
+  if ($("tmplClFirst")) tpl.claude = { first: $("tmplClFirst").value, next: $("tmplClNext") ? $("tmplClNext").value : (tpl.claude && tpl.claude.next) || "" };
   if ($("tmplAsk")) tpl.ask = $("tmplAsk").value;
 }
 
@@ -833,8 +851,17 @@ $("tmplForm").addEventListener("submit", async (e) => {
   if (!e.submitter || e.submitter.value !== "save") return;
   captureTmpl();
   TLIB.active = tSel; // the selected template is the one runs will use
-  try { await api("/api/templates", "POST", TLIB); banner(t("tmplSaved"), true); }
-  catch (err) { banner(err.message, false); }
+  try {
+    await api("/api/templates", "POST", TLIB);
+    // Persist the review mode (edited here) back to config if it changed.
+    if (CFG && CFG.flow && CFG.flow.review_mode !== tMode) {
+      const cfg = JSON.parse(JSON.stringify(CFG));
+      cfg.flow.review_mode = tMode;
+      await api("/api/config", "POST", cfg);
+      CFG = cfg;
+    }
+    banner(t("tmplSaved"), true);
+  } catch (err) { banner(err.message, false); }
 });
 
 function setByPath(obj, path, val) {

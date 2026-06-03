@@ -464,6 +464,7 @@ async function syncRunState() {
   active = { codex: only !== "claude", claude: only !== "codex" };
   renderDrive();
   setRunning(!!st.running);
+  setPaused(!!(st.control && st.control.paused));
   if (st.running) { setStatus("running", "run"); openTerminals(); }
   refreshHandoff();
 }
@@ -495,6 +496,10 @@ function handleEvent(e) {
     // terminals; stop/converged closes them.
     case "run_started": setRunning(true); setStatus("running", "run"); openTerminals(); addTimeline(e); break;
     case "screen": break;
+    case "control":
+      if (e.message === "pause") setPaused(true);
+      else if (e.message === "resume") setPaused(false);
+      addTimeline(e); break;
     case "turn_started": setStatus("running", "run", `${e.side} #${e.round}`); addTimeline(e); break;
     case "turn_finished": {
       const v = $(e.side === "codex" ? "vcodex" : "vclaude");
@@ -584,19 +589,33 @@ window.addEventListener("resize", () => {
 // running=false: only Start + Config + drive toggles + (config) usable; Stop/Pause/
 // Resume/skip/inject are meaningless and get disabled so the UI can't lie.
 let RUNNING = false;
+let PAUSED = false;
 // drive toggles: which sides are active. Derived from server's onlySide.
 let active = { codex: true, claude: true };
 
 function setRunning(r) {
   RUNNING = r;
+  if (!r) PAUSED = false; // a stopped run can't be "paused"
   $("btnStart").disabled = r;
   $("btnStop").disabled = !r;
-  $("btnPause").disabled = !r;
-  $("btnResume").disabled = !r;
   document.querySelectorAll("[data-skip],[data-inject]").forEach((b) => (b.disabled = !r));
   document.querySelectorAll("#icodex,#iclaude").forEach((i) => (i.disabled = !r));
   // session pickers can't change mid-run; drive toggles stay usable always.
   document.querySelectorAll(".rssel").forEach((s) => (s.disabled = r));
+  applyPauseButtons();
+}
+
+// applyPauseButtons makes Pause and Resume mutually exclusive: only one is ever
+// enabled, based on whether the run is currently paused. Both disabled when not
+// running.
+function applyPauseButtons() {
+  $("btnPause").disabled = !RUNNING || PAUSED;
+  $("btnResume").disabled = !RUNNING || !PAUSED;
+}
+
+function setPaused(p) {
+  PAUSED = p;
+  applyPauseButtons();
 }
 
 function renderDrive() {
@@ -680,8 +699,8 @@ $("btnStart").onclick = async () => {
   } catch (e) { banner(e.message, false); }
 };
 $("btnStop").onclick = () => api("/api/stop", "POST");
-$("btnPause").onclick = () => api("/api/control", "POST", { action: "pause" });
-$("btnResume").onclick = () => api("/api/control", "POST", { action: "resume" });
+$("btnPause").onclick = () => { setPaused(true); api("/api/control", "POST", { action: "pause" }); };
+$("btnResume").onclick = () => { setPaused(false); api("/api/control", "POST", { action: "resume" }); };
 document.querySelectorAll("[data-skip]").forEach((b) =>
   (b.onclick = () => api("/api/control", "POST", { action: "skip", side: b.dataset.skip })));
 document.querySelectorAll("[data-inject]").forEach((b) =>

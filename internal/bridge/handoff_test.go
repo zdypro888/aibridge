@@ -15,12 +15,46 @@ func TestHandoff_WriteReadRoundTrip(t *testing.T) {
 	if err := os.WriteFile(handoffPath(repo, "claude"), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got, converged := readHandoff(repo, "claude")
+	got, verdict, converged := readHandoff(repo, "claude")
 	if converged {
 		t.Fatal("should not be converged for a normal prompt")
 	}
+	if verdict != "" {
+		t.Fatalf("no verdict line written; want empty, got %q", verdict)
+	}
 	if got != body {
 		t.Fatalf("round-trip mismatch:\n got %q\nwant %q", got, body)
+	}
+}
+
+func TestHandoff_VerdictLineParsed(t *testing.T) {
+	repo := t.TempDir()
+	PrepareHandoff(repo)
+	body := "VERDICT: FIXED\nNow check the lock ordering in control.go pause/resume."
+	if err := os.WriteFile(handoffPath(repo, "claude"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	prompt, verdict, converged := readHandoff(repo, "claude")
+	if converged {
+		t.Fatal("not converged")
+	}
+	if verdict != "FIXED" {
+		t.Fatalf("verdict = %q, want FIXED", verdict)
+	}
+	if prompt != "Now check the lock ordering in control.go pause/resume." {
+		t.Fatalf("prompt should have verdict line stripped, got %q", prompt)
+	}
+}
+
+func TestHandoff_VerdictThenConverged(t *testing.T) {
+	repo := t.TempDir()
+	PrepareHandoff(repo)
+	if err := os.WriteFile(handoffPath(repo, "codex"), []byte("VERDICT: CLEAN\nCONVERGED\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	prompt, verdict, converged := readHandoff(repo, "codex")
+	if !converged || verdict != "CLEAN" || prompt != "" {
+		t.Fatalf("want converged+CLEAN+empty, got conv=%v verdict=%q prompt=%q", converged, verdict, prompt)
 	}
 }
 
@@ -30,7 +64,7 @@ func TestHandoff_ConvergedSentinel(t *testing.T) {
 	if err := os.WriteFile(handoffPath(repo, "codex"), []byte("  CONVERGED\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	prompt, converged := readHandoff(repo, "codex")
+	prompt, _, converged := readHandoff(repo, "codex")
 	if !converged {
 		t.Fatal("CONVERGED sentinel not detected")
 	}
@@ -44,7 +78,7 @@ func TestHandoff_ConvergedSentinel(t *testing.T) {
 
 func TestHandoff_MissingIsEmpty(t *testing.T) {
 	repo := t.TempDir()
-	prompt, converged := readHandoff(repo, "claude")
+	prompt, _, converged := readHandoff(repo, "claude")
 	if prompt != "" || converged {
 		t.Fatalf("missing handoff should be empty/not-converged, got %q/%v", prompt, converged)
 	}

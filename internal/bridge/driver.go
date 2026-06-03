@@ -134,18 +134,25 @@ func (d *AgentDriver) Review(ctx context.Context, handoff string, ask bool) (Rev
 	noMore := parseNoMoreBugs(screen)
 	hoPrompt, converged := "", false
 	if handoffMode {
-		hoPrompt, converged = readHandoff(d.repoDir, peer)
+		var hoVerdict string
+		hoPrompt, hoVerdict, converged = readHandoff(d.repoDir, peer)
+		// In handoff mode the file is the source of truth: prefer the verdict the
+		// agent wrote at the top of its handoff file over the screen scrape.
+		if v := verdictFromString(hoVerdict); v != VerdictUnknown {
+			verdict = v
+		}
 	}
 
 	// Completion nudge: a long turn can trigger the CLI's context compaction,
-	// which drops the turn-start instructions — so the agent may finish without
-	// the machine-required output (verdict line; in handoff mode the peer file).
-	// Re-prompt with a SHORT, self-contained reminder (survives a shrunken
-	// context) and re-read, up to maxNudges times.
+	// dropping the turn-start instructions — so the agent may finish without the
+	// required output. In handoff mode the single required output is the handoff
+	// file (which now also carries the verdict); elsewhere it's the on-screen
+	// verdict line. Re-prompt with a SHORT, self-contained reminder (survives a
+	// shrunken context) and re-read, up to maxNudges times.
 	const maxNudges = 2
 	for n := range maxNudges {
-		needVerdict := verdict == VerdictUnknown
 		needFile := handoffMode && hoPrompt == "" && !converged
+		needVerdict := !handoffMode && verdict == VerdictUnknown
 		if !needVerdict && !needFile {
 			break
 		}
@@ -163,8 +170,11 @@ func (d *AgentDriver) Review(ctx context.Context, handoff string, ask bool) (Rev
 			noMore = true
 		}
 		if handoffMode {
-			if p, c := readHandoff(d.repoDir, peer); p != "" || c {
+			if p, hv, c := readHandoff(d.repoDir, peer); p != "" || c {
 				hoPrompt, converged = p, c
+				if v := verdictFromString(hv); v != VerdictUnknown {
+					verdict = v
+				}
 			}
 		}
 	}
@@ -233,15 +243,7 @@ func (d *AgentDriver) reviewMCP(ctx context.Context, handoff string, ask bool) (
 
 // buildMCPReview converts a submit_review tool call into a Review.
 func (d *AgentDriver) buildMCPReview(sub ReviewSubmission) Review {
-	v := VerdictUnknown
-	switch sub.Verdict {
-	case "CLEAN":
-		v = VerdictClean
-	case "FIXED":
-		v = VerdictFixed
-	case "ISSUES":
-		v = VerdictIssues
-	}
+	v := verdictFromString(sub.Verdict)
 	hash, _ := gitx.Hash(d.repoDir)
 	return Review{
 		Side:           d.side,
@@ -293,7 +295,12 @@ func parseVerdict(screen string) Verdict {
 	if len(all) == 0 {
 		return VerdictUnknown
 	}
-	switch strings.ToUpper(all[len(all)-1][1]) {
+	return verdictFromString(all[len(all)-1][1])
+}
+
+// verdictFromString maps a CLEAN/FIXED/ISSUES token (any case) to a Verdict.
+func verdictFromString(s string) Verdict {
+	switch strings.ToUpper(strings.TrimSpace(s)) {
 	case "CLEAN":
 		return VerdictClean
 	case "FIXED":

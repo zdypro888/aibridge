@@ -106,7 +106,7 @@ func completionNudge(l Lang, peer string, needVerdict, needFile bool) string {
 	if l == LangZH {
 		s := "你这一轮似乎已完成,但还差机器必需的输出,请现在补上:"
 		if needFile {
-			s += " 把给 " + peer + " 下一轮的提示词写入文件 .aibridge/next-" + peer + ".md(没有可让对方查的就只写 CONVERGED);"
+			s += " 把结果写入文件 .aibridge/next-" + peer + ".md:第一行 VERDICT: 加 CLEAN/FIXED/ISSUES,之后写给 " + peer + " 下一轮的提示词(没有可让对方查的就在 VERDICT 行后只写 CONVERGED);"
 		}
 		if needVerdict {
 			s += " 并在最后单独一行输出 token AUDIT_RESULT: 加 CLEAN 或 FIXED 或 ISSUES;"
@@ -115,7 +115,7 @@ func completionNudge(l Lang, peer string, needVerdict, needFile bool) string {
 	}
 	s := "Your turn looks finished but is missing required machine output. Do this now:"
 	if needFile {
-		s += " write the next-turn prompt for " + peer + " to the file .aibridge/next-" + peer + ".md (or just CONVERGED if nothing is left for them);"
+		s += " write your result to .aibridge/next-" + peer + ".md: first line 'VERDICT: ' + CLEAN/FIXED/ISSUES, then the next-turn prompt for " + peer + " (or CONVERGED after the VERDICT line if nothing is left for them);"
 	}
 	if needVerdict {
 		s += " and output on a final line the token AUDIT_RESULT: followed by CLEAN or FIXED or ISSUES;"
@@ -134,16 +134,20 @@ func handoffEssentials(l Lang, peer string) string {
 			"(b) 只为修复真实、具体的问题才改代码——不要重写/重排版/改名/整理本来就好的代码(无意义改动会让循环无法收敛);没真问题就什么都不要改。" +
 			"(c) 追求完美:任何真实问题无论多小都要彻底修复;但没有真实缺陷的代码本来就是完美的,不要折腾。" +
 			"(d) 不要 commit 或 stage,把改动留在工作区。" +
-			"(e) 干完后,把【写给另一个审查员(" + peer + ")下一轮的提示词】用文件写入路径 .aibridge/next-" + peer + ".md ——具体告诉它下一轮该重点查哪里、为什么可疑。" +
-			"如果你确信对方已经没有任何值得再查的地方,就只把这一个词 CONVERGED 写进该文件。"
+			"(e) 干完后,把结果【写入文件】 .aibridge/next-" + peer + ".md:第一行写 VERDICT: 加 CLEAN 或 FIXED 或 ISSUES(CLEAN=没发现问题且没改代码,FIXED=改了代码修复问题,ISSUES=发现问题但没改);" +
+			"接下来写给另一个审查员(" + peer + ")下一轮的提示词——具体告诉它该重点查哪里、为什么可疑。" +
+			"如果你确信对方已经没有任何值得再查的地方,第一行 VERDICT 之后只写一个词 CONVERGED。" +
+			"这个文件是本轮唯一的结果出口,写了它就行,不需要在屏幕上再打 AUDIT_RESULT。"
 	}
 	return "[NON-NEGOTIABLE RULES] " +
 		"(a) Verify independently; do not trust the other reviewer's conclusions — you are a different model and must catch its blind spots. " +
 		"(b) Change code ONLY to fix a real, concrete problem — never rewrite/reformat/rename/tidy code that already works (cosmetic churn stops the loop from ever converging); if nothing is genuinely wrong, change nothing. " +
 		"(c) Pursue perfection: fix every real problem no matter how small; but code with no real defect is already perfect — do not churn it. " +
 		"(d) Do NOT commit or stage; leave changes in the work tree. " +
-		"(e) When done, WRITE THE NEXT-TURN PROMPT FOR THE OTHER REVIEWER (" + peer + ") to the file .aibridge/next-" + peer + ".md — tell it specifically what to review next and why it's suspect. " +
-		"If you are confident the other side has nothing left worth reviewing, write ONLY the single word CONVERGED into that file instead."
+		"(e) When done, WRITE YOUR RESULT TO THE FILE .aibridge/next-" + peer + ".md: the FIRST line must be 'VERDICT: ' followed by CLEAN, FIXED, or ISSUES (CLEAN=no problems found and changed nothing, FIXED=edited code to fix problems, ISSUES=found problems but didn't fix); " +
+		"then write the next-turn prompt for the other reviewer (" + peer + ") — what to review next and why it's suspect. " +
+		"If you are confident the other side has nothing left worth reviewing, put CONVERGED as the only word after the VERDICT line. " +
+		"This file is the SOLE output of your turn — writing it is enough; you do NOT also need to print AUDIT_RESULT on screen."
 }
 
 // mcpEssentials restates the core doctrine and tells the agent to finish its turn

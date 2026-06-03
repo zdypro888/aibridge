@@ -3,6 +3,7 @@ package bridge
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -75,22 +76,36 @@ func addLocalGitExclude(repoDir, pattern string) {
 	}
 }
 
-// readHandoff returns the prompt the previous agent wrote for side's next turn,
-// and whether that agent declared convergence (wrote the CONVERGED sentinel).
-// A missing/empty file yields ("", false): the caller falls back to the template.
-func readHandoff(repoDir, side string) (prompt string, converged bool) {
+// handoffVerdictRe matches an optional leading verdict line the writing agent may
+// put at the TOP of its handoff file, e.g. "VERDICT: FIXED" or
+// "AUDIT_RESULT: CLEAN". This makes the file the single source of truth for both
+// the verdict AND the peer's next prompt, so handoff mode never depends on also
+// finding the verdict on the scrolling screen.
+var handoffVerdictRe = regexp.MustCompile(`(?i)^\s*(?:VERDICT|AUDIT_RESULT)\s*:\s*(CLEAN|FIXED|ISSUES)\b[ \t]*\r?\n?`)
+
+// readHandoff returns what the previous agent wrote for side's next turn: the
+// peer's next prompt, the writer's own verdict (parsed from an optional leading
+// VERDICT:/AUDIT_RESULT: line; "" if absent), and whether it declared convergence
+// (wrote the CONVERGED sentinel). A missing/empty file yields ("","",false): the
+// caller falls back to the template / screen parse.
+func readHandoff(repoDir, side string) (prompt, verdict string, converged bool) {
 	data, err := os.ReadFile(handoffPath(repoDir, side))
 	if err != nil {
-		return "", false
+		return "", "", false
 	}
 	s := strings.TrimSpace(string(data))
 	if s == "" {
-		return "", false
+		return "", "", false
 	}
-	if s == HandoffConverged {
-		return "", true
+	// Strip an optional leading verdict line.
+	if m := handoffVerdictRe.FindStringSubmatch(s); m != nil {
+		verdict = strings.ToUpper(m[1])
+		s = strings.TrimSpace(s[len(m[0]):])
 	}
-	return s, false
+	if s == HandoffConverged || strings.EqualFold(s, HandoffConverged) {
+		return "", verdict, true
+	}
+	return s, verdict, false
 }
 
 // clearHandoff removes side's pending handoff file so a stale prompt from a prior
@@ -102,7 +117,7 @@ func clearHandoff(repoDir, side string) {
 // peerConverged reports whether the agent that just finished declared the OTHER
 // side has nothing left to review — i.e. it wrote CONVERGED for the peer.
 func peerConverged(repoDir, peer string) bool {
-	_, c := readHandoff(repoDir, peer)
+	_, _, c := readHandoff(repoDir, peer)
 	return c
 }
 
@@ -117,7 +132,7 @@ type HandoffView struct {
 
 // ReadHandoffView returns the current handoff files for display in the dashboard.
 func ReadHandoffView(repoDir string) HandoffView {
-	cx, cxc := readHandoff(repoDir, "codex")
-	cl, clc := readHandoff(repoDir, "claude")
+	cx, _, cxc := readHandoff(repoDir, "codex")
+	cl, _, clc := readHandoff(repoDir, "claude")
 	return HandoffView{Codex: cx, Claude: cl, CodexConverged: cxc, ClaudeConverged: clc}
 }

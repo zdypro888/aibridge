@@ -53,7 +53,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/control", s.handleControl)
 	mux.HandleFunc("/api/status", s.handleStatus)
 	mux.HandleFunc("/api/events", s.handleEvents)
+	mux.HandleFunc("/api/handoff", s.handleHandoff)
 	mux.HandleFunc("/ws/terminal", s.handleTerminal)
+	// MCP endpoint the child CLIs connect to (mcp review mode). The hub routes
+	// submit_review tool calls to the driver awaiting that side's turn.
+	mux.Handle("/mcp/", s.run.Hub())
 	return mux
 }
 
@@ -180,6 +184,16 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 		list = nil
 	}
 	writeJSON(w, map[string]any{"sessions": list})
+}
+
+// handleHandoff returns the current peer-handoff prompts (what each side has been
+// handed for its next turn) so the dashboard can show the agents steering each
+// other. GET /api/handoff
+func (s *Server) handleHandoff(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	repo := s.cfg.Repo
+	s.mu.Unlock()
+	writeJSON(w, bridge.ReadHandoffView(repo))
 }
 
 func (s *Server) handleStop(w http.ResponseWriter, r *http.Request) {

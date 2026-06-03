@@ -50,6 +50,11 @@
   section.wide { padding:0 16px 16px; }
   .timeline { background:var(--panel); border:1px solid var(--border); border-radius:8px; max-height:24vh; overflow:auto; padding:8px 12px; }
   .ev { padding:2px 0; color:var(--muted); }
+  .handoff { display:flex; gap:8px; margin-top:8px; }
+  .handoff .ho-col { flex:1; min-width:0; background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:6px 10px; }
+  .handoff .ho-h { font:600 12px var(--sans,sans-serif); color:var(--accent); margin-bottom:4px; }
+  .handoff .ho-tag { font-weight:400; color:var(--muted); }
+  .handoff .ho-body { margin:0; max-height:90px; overflow:auto; white-space:pre-wrap; word-break:break-word; font:11px/1.45 var(--mono,monospace); color:var(--fg); }
   .ev b { color:var(--fg); }
   .ev .k { display:inline-block; min-width:118px; color:var(--accent); }
   dialog { background:var(--panel); color:var(--fg); border:1px solid var(--border); border-radius:10px; width:min(680px,92vw); max-height:86vh; overflow:auto; }
@@ -261,6 +266,16 @@
 
 <section class="wide">
   <div class="timeline" id="timeline"></div>
+  <div class="handoff" id="handoff" style="display:none">
+    <div class="ho-col">
+      <div class="ho-h">→ codex <span class="ho-tag" id="hoCodexTag"></span></div>
+      <pre class="ho-body" id="hoCodex"></pre>
+    </div>
+    <div class="ho-col">
+      <div class="ho-h">→ claude <span class="ho-tag" id="hoClaudeTag"></span></div>
+      <pre class="ho-body" id="hoClaude"></pre>
+    </div>
+  </div>
 </section>
 
 <main>
@@ -335,6 +350,7 @@ const I18N = {
     cfgAddr: "Web addr", cfgFlow: "Flow", cfgFirst: "First reviewer",
     cfgMaxRounds: "Max rounds (0 = unlimited)", cfgStrategy: "Convergence strategy",
     cfgReviewMode: "Review mode",
+    hoEmpty: "(waiting…)", hoConverged: "✓ nothing left",
     cfgEnabled: "Enabled", cfgCommand: "Command", cfgStable: "Stable for", cfgSettle: "Settle for",
     cfgTimeout: "Stuck timeout (0=off)",
     cfgBusy: "Busy pattern (regex)",
@@ -369,6 +385,7 @@ const I18N = {
     cfgAddr: "Web 地址", cfgFlow: "流程", cfgFirst: "谁先审",
     cfgMaxRounds: "最大轮次 (0 = 无限)", cfgStrategy: "收敛策略",
     cfgReviewMode: "审查模式",
+    hoEmpty: "(等待中…)", hoConverged: "✓ 没有可查的了",
     cfgEnabled: "启用", cfgCommand: "启动命令", cfgStable: "稳定判定", cfgSettle: "等待启动",
     cfgTimeout: "卡死超时(0=关闭)",
     cfgBusy: "忙碌标志(正则)",
@@ -397,6 +414,7 @@ $("uiLang").onchange = (e) => {
   applyI18n();
   if (CFG && $("cfgDialog").open) renderConfig(CFG);
   populateAllSessions(); // rebuild option labels in the new language
+  refreshHandoff();
 };
 
 async function api(path, method = "GET", body) {
@@ -445,6 +463,7 @@ async function syncRunState() {
   renderDrive();
   setRunning(!!st.running);
   if (st.running) { setStatus("running", "run"); openTerminals(); }
+  refreshHandoff();
 }
 
 function addTimeline(e) {
@@ -478,7 +497,7 @@ function handleEvent(e) {
     case "turn_finished": {
       const v = $(e.side === "codex" ? "vcodex" : "vclaude");
       if (v) { v.textContent = e.verdict; v.className = "v " + e.verdict; }
-      addTimeline(e); break;
+      addTimeline(e); refreshHandoff(); break;
     }
     case "converged": setRunning(false); setStatus("converged", "done"); closeTerminals(); addTimeline(e); banner(t("converged"), true); populateAllSessions(); break;
     case "stopped": setRunning(false); setStatus("stopped", "done"); closeTerminals(); addTimeline(e); populateAllSessions(); break;
@@ -635,6 +654,23 @@ async function populateSessions(side) {
 
 function populateAllSessions() { populateSessions("codex"); populateSessions("claude"); }
 
+// ---- handoff panel: shows what each agent handed the other for its next turn
+// (handoff & mcp review modes). Hidden when there's nothing to show.
+async function refreshHandoff() {
+  let h;
+  try { h = await api("/api/handoff"); } catch { return; }
+  const has = (h.codex && h.codex.trim()) || (h.claude && h.claude.trim()) || h.codex_converged || h.claude_converged;
+  const panel = $("handoff");
+  if (!has) { panel.style.display = "none"; return; }
+  panel.style.display = "flex";
+  const fill = (side, text, conv) => {
+    $("ho" + side).textContent = (text && text.trim()) ? text : (conv ? "" : t("hoEmpty"));
+    $("ho" + side + "Tag").textContent = conv ? t("hoConverged") : "";
+  };
+  fill("Codex", h.codex, h.codex_converged);
+  fill("Claude", h.claude, h.claude_converged);
+}
+
 $("btnStart").onclick = async () => {
   try {
     await api("/api/start", "POST", { codex: resumeChoice("codex"), claude: resumeChoice("claude") });
@@ -691,7 +727,7 @@ function renderConfig(cfg) {
     ${selectField(t("cfgFirst"), "flow.first", f.first, ["codex", "claude"])}
     ${field(t("cfgMaxRounds"), "flow.max_rounds", f.max_rounds)}
     ${selectField(t("cfgStrategy"), "flow.strategy", f.strategy, ["combined", "diff-fixpoint", "ask-gate"])}
-    ${selectField(t("cfgReviewMode"), "flow.review_mode", f.review_mode || "handoff", ["handoff", "rotate", "plain"])}
+    ${selectField(t("cfgReviewMode"), "flow.review_mode", f.review_mode || "handoff", ["handoff", "mcp", "rotate", "plain"])}
     <h3>Codex</h3>
     ${boolField(t("cfgEnabled"), "agents.codex.enabled", a.codex.enabled)}
     ${field(t("cfgCommand"), "agents.codex.command", a.codex.command)}

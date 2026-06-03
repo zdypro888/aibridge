@@ -94,6 +94,7 @@ const (
 type Runner struct {
 	bus  *bridge.Bus
 	ctrl *bridge.Control
+	hub  *bridge.MCPHub // routes agents' submit_review MCP calls to the waiting driver
 
 	mu      sync.Mutex
 	running bool
@@ -104,10 +105,13 @@ type Runner struct {
 
 // New creates an idle runner with a fresh event bus and control surface.
 func New() *Runner {
-	return &Runner{bus: bridge.NewBus(500), ctrl: bridge.NewControl(), agents: map[string]*agent.Agent{}}
+	return &Runner{bus: bridge.NewBus(500), ctrl: bridge.NewControl(), hub: bridge.NewMCPHub(), agents: map[string]*agent.Agent{}}
 }
 
 func (r *Runner) Bus() *bridge.Bus { return r.bus }
+
+// Hub returns the MCP hub the HTTP /mcp endpoint delivers tool calls to.
+func (r *Runner) Hub() *bridge.MCPHub { return r.hub }
 
 // Control returns the current control surface. Synchronized because Start swaps
 // in a fresh *Control per run while the HTTP layer may concurrently fetch it.
@@ -170,6 +174,15 @@ func (r *Runner) Start(cfg config.Config, tmpl promptlib.Template, resume Resume
 	// Prepare the handoff exchange dir and clear any stale handoff files from a
 	// previous run so the first turn never reads an old peer prompt.
 	bridge.PrepareHandoff(cfg.Repo)
+
+	// In MCP mode, write the per-repo MCP client config so each CLI connects back
+	// to our /mcp endpoint. Repo-scoped only — never touches global user config.
+	if bridge.ReviewMode(cfg.Flow.ReviewMode) == bridge.ModeMCP {
+		if err := bridge.WriteMCPConfig(cfg.Repo, cfg.Server.Addr); err != nil {
+			clearRunning()
+			return fmt.Errorf("write mcp config: %w", err)
+		}
+	}
 
 	codexDrv, claudeDrv, agents, cleanup, err := r.buildDrivers(cfg, tmpl, resume)
 	if err != nil {
@@ -264,7 +277,11 @@ func (r *Runner) buildDrivers(cfg config.Config, tmpl promptlib.Template, resume
 			Timeout: ac.Timeout.D(),
 			Busy:    busyRe(ac.BusyPattern),
 		}
-		return bridge.NewAgentDriver(side, ag, cfg.Repo, wait, ps), nil
+		drv := bridge.NewAgentDriver(side, ag, cfg.Repo, wait, ps)
+		if bridge.ReviewMode(cfg.Flow.ReviewMode) == bridge.ModeMCP {
+			drv.SetHub(r.hub)
+		}
+		return drv, nil
 	}
 
 	codex, err = mk("codex", cfg.Agents.Codex)

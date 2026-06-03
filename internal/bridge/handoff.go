@@ -105,3 +105,19 @@ func peerConverged(repoDir, peer string) bool {
 	_, c := readHandoff(repoDir, peer)
 	return c
 }
+
+// HandoffView is the current handoff state for the UI: the next-turn prompt each
+// side has been handed, and whether either declared convergence.
+type HandoffView struct {
+	Codex           string `json:"codex"`           // prompt waiting for codex's next turn
+	Claude          string `json:"claude"`          // prompt waiting for claude's next turn
+	CodexConverged  bool   `json:"codex_converged"` // peer wrote CONVERGED for codex
+	ClaudeConverged bool   `json:"claude_converged"`
+}
+
+// ReadHandoffView returns the current handoff files for display in the dashboard.
+func ReadHandoffView(repoDir string) HandoffView {
+	cx, cxc := readHandoff(repoDir, "codex")
+	cl, clc := readHandoff(repoDir, "claude")
+	return HandoffView{Codex: cx, Claude: cl, CodexConverged: cxc, ClaudeConverged: clc}
+}

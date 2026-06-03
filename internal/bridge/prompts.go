@@ -67,6 +67,11 @@ const (
 	ModeRotate ReviewMode = "rotate"
 	// ModePlain: fixed templates only, no dynamic focus.
 	ModePlain ReviewMode = "plain"
+	// ModeMCP: the agent reports its result by CALLING our submit_review MCP tool
+	// (verdict + next prompt for the peer) instead of printing it to the screen.
+	// The tool call is also the turn-finished signal. Falls back to screen parsing
+	// if the agent never calls the tool.
+	ModeMCP ReviewMode = "mcp"
 )
 
 // normMode defaults blank/unknown to handoff.
@@ -76,6 +81,8 @@ func normMode(s string) ReviewMode {
 		return ModeRotate
 	case ModePlain:
 		return ModePlain
+	case ModeMCP:
+		return ModeMCP
 	default:
 		return ModeHandoff
 	}
@@ -137,6 +144,28 @@ func handoffEssentials(l Lang, peer string) string {
 		"(d) Do NOT commit or stage; leave changes in the work tree. " +
 		"(e) When done, WRITE THE NEXT-TURN PROMPT FOR THE OTHER REVIEWER (" + peer + ") to the file .aibridge/next-" + peer + ".md — tell it specifically what to review next and why it's suspect. " +
 		"If you are confident the other side has nothing left worth reviewing, write ONLY the single word CONVERGED into that file instead."
+}
+
+// mcpEssentials restates the core doctrine and tells the agent to finish its turn
+// by CALLING the submit_review MCP tool (rather than printing a verdict). Used in
+// mcp mode; appended every turn since the body may be the peer's free-form text.
+func mcpEssentials(l Lang, peer string) string {
+	if l == LangZH {
+		return "【铁律,必须遵守】" +
+			"(a) 独立核验,不要轻信对方结论;你是不同的模型,要发现它的盲区。" +
+			"(b) 只为修复真实、具体的问题才改代码——不要重写/重排版/改名/整理本来就好的代码(无意义改动会让循环无法收敛);没真问题就什么都不要改。" +
+			"(c) 追求完美:任何真实问题无论多小都要彻底修复;但没有真实缺陷的代码本来就是完美的,不要折腾。" +
+			"(d) 不要 commit 或 stage,把改动留在工作区。" +
+			"(e) 【本轮结束时必须调用 submit_review 工具】提交结果:verdict(CLEAN/FIXED/ISSUES)、summary(本轮做了什么)、" +
+			"next_prompt_for_peer(给另一个审查员 " + peer + " 下一轮的提示词,具体说该查哪、为什么可疑;若没有可让对方查的就留空并把 no_more_bugs 设为 true)。"
+	}
+	return "[NON-NEGOTIABLE RULES] " +
+		"(a) Verify independently; do not trust the other reviewer's conclusions — you are a different model and must catch its blind spots. " +
+		"(b) Change code ONLY to fix a real, concrete problem — never rewrite/reformat/rename/tidy code that already works (cosmetic churn stops the loop from ever converging); if nothing is genuinely wrong, change nothing. " +
+		"(c) Pursue perfection: fix every real problem no matter how small; but code with no real defect is already perfect — do not churn it. " +
+		"(d) Do NOT commit or stage; leave changes in the work tree. " +
+		"(e) WHEN DONE YOU MUST CALL THE submit_review TOOL with: verdict (CLEAN/FIXED/ISSUES), summary (what you did), and " +
+		"next_prompt_for_peer (the prompt for the other reviewer " + peer + " — what to review next and why; leave empty and set no_more_bugs=true if nothing is left for them)."
 }
 
 // verdictInstruction returns the language-appropriate instruction for ending the
@@ -434,11 +463,11 @@ func (p *PromptSet) Render(handoff string, ask bool) string {
 	}
 
 	var out string
-	if p.mode == ModeHandoff && strings.TrimSpace(handoff) != "" {
-		// Body = the peer's free-form prompt written to the handoff file. We do
-		// NOT run a template over it (it's already a complete instruction); we add
-		// the machine-critical essentials + language directive, which the peer's
-		// free text won't contain.
+	if (p.mode == ModeHandoff || p.mode == ModeMCP) && strings.TrimSpace(handoff) != "" {
+		// Body = the peer's free-form prompt (handoff file, or the MCP
+		// next_prompt_for_peer). We do NOT run a template over it (it's already a
+		// complete instruction); we add the machine-critical essentials + language
+		// directive, which the peer's free text won't contain.
 		out = flatten(handoff + " " + data.ReplyLang)
 	} else {
 		// First turn (or non-handoff mode): render the configured template.
@@ -460,6 +489,9 @@ func (p *PromptSet) Render(handoff string, ask bool) string {
 		// prompt for the peer. Required because in handoff mode the body is the
 		// peer's free text, which won't carry these.
 		out = flatten(out + " " + handoffEssentials(p.lang, peerSide(p.side)))
+	case ModeMCP:
+		// Restate doctrine + tell the agent to finish by calling submit_review.
+		out = flatten(out + " " + mcpEssentials(p.lang, peerSide(p.side)))
 	case ModeRotate:
 		// Rotate a per-turn lens so successive turns deep-dive different
 		// dimensions (fights premature convergence). Per side, advancing.
@@ -469,7 +501,8 @@ func (p *PromptSet) Render(handoff string, ask bool) string {
 
 	// Force the machine-parseable verdict onto the end even if a custom template
 	// forgot it — without it the bridge can never detect convergence. We append
-	// only what's missing so well-formed templates aren't duplicated.
+	// only what's missing so well-formed templates aren't duplicated. (In MCP mode
+	// this is a screen-parse fallback for when the agent doesn't call the tool.)
 	if !strings.Contains(out, "AUDIT_RESULT") {
 		out = flatten(out + " " + data.Verdict)
 	}

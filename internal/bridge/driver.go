@@ -53,6 +53,7 @@ type AgentDriver struct {
 	repoDir  string
 	wait     agent.WaitOpts
 	prompts  *PromptSet
+	hub      *MCPHub // non-nil only in mcp review mode
 	warmedUp bool
 }
 
@@ -60,6 +61,10 @@ type AgentDriver struct {
 func NewAgentDriver(side string, ag *agent.Agent, repoDir string, wait agent.WaitOpts, prompts *PromptSet) *AgentDriver {
 	return &AgentDriver{side: side, ag: ag, repoDir: repoDir, wait: wait, prompts: prompts}
 }
+
+// SetHub enables MCP mode: the driver waits for the agent's submit_review tool
+// call (routed via the hub) instead of scraping the screen for a verdict.
+func (d *AgentDriver) SetHub(h *MCPHub) { d.hub = h }
 
 func (d *AgentDriver) Name() string { return d.side }
 
@@ -104,6 +109,10 @@ func (d *AgentDriver) Review(ctx context.Context, handoff string, ask bool) (Rev
 	if !d.warmedUp {
 		d.warmup(ctx)
 		d.warmedUp = true
+	}
+
+	if d.hub != nil && d.prompts != nil && d.prompts.mode == ModeMCP {
+		return d.reviewMCP(ctx, handoff, ask)
 	}
 
 	handoffMode := d.prompts != nil && d.prompts.mode == ModeHandoff
@@ -176,6 +185,85 @@ func (d *AgentDriver) Review(ctx context.Context, handoff string, ask bool) (Rev
 		HandoffForPeer: hoPrompt,
 	}
 	return rev, nil
+}
+
+// reviewMCP drives a turn in MCP mode: submit the prompt, then wait for the
+// agent to call submit_review (routed via the hub) — that call is the
+// turn-finished signal and carries the structured result. If the agent goes idle
+// WITHOUT calling the tool, fall back to scraping the screen for a verdict so a
+// non-cooperating CLI still works.
+func (d *AgentDriver) reviewMCP(ctx context.Context, handoff string, ask bool) (Review, error) {
+	resultCh := d.hub.await(d.side)
+	defer d.hub.cancelAwait(d.side)
+
+	prompt := d.prompts.Render(handoff, ask)
+
+	// Submit, and in the background wait for the turn to go idle (screen-stable).
+	idleCh := make(chan string, 1)
+	go func() {
+		screen, err := d.submitAndWait(ctx, prompt)
+		if err != nil {
+			debugf("%s mcp submit/idle err=%v", d.side, err)
+		}
+		idleCh <- screen
+	}()
+
+	// Phase 1: wait for EITHER the tool call (authoritative) or the turn to go
+	// idle. The tool call usually lands first.
+	select {
+	case <-ctx.Done():
+		return Review{Side: d.side, Verdict: VerdictUnknown}, nil
+	case sub := <-resultCh:
+		return d.buildMCPReview(sub), nil
+	case screen := <-idleCh:
+		// Phase 2: idle reached without a tool call yet. Give it a short grace
+		// window (the call may land just after the screen settles), else fall back
+		// to screen parsing so a non-cooperating CLI still works.
+		select {
+		case <-ctx.Done():
+			return Review{Side: d.side, Verdict: VerdictUnknown}, nil
+		case sub := <-resultCh:
+			return d.buildMCPReview(sub), nil
+		case <-time.After(3 * time.Second):
+			debugf("%s mcp: no tool call, falling back to screen parse", d.side)
+			return d.reviewFromScreen(screen), nil
+		}
+	}
+}
+
+// buildMCPReview converts a submit_review tool call into a Review.
+func (d *AgentDriver) buildMCPReview(sub ReviewSubmission) Review {
+	v := VerdictUnknown
+	switch sub.Verdict {
+	case "CLEAN":
+		v = VerdictClean
+	case "FIXED":
+		v = VerdictFixed
+	case "ISSUES":
+		v = VerdictIssues
+	}
+	hash, _ := gitx.Hash(d.repoDir)
+	return Review{
+		Side:           d.side,
+		Verdict:        v,
+		Report:         sub.Summary,
+		DiffHash:       hash,
+		NoMoreBugs:     sub.NoMoreBugs,
+		HandoffForPeer: sub.NextForPeer,
+	}
+}
+
+// reviewFromScreen builds a Review by parsing the rendered screen (MCP fallback
+// when the agent didn't call the tool).
+func (d *AgentDriver) reviewFromScreen(screen string) Review {
+	hash, _ := gitx.Hash(d.repoDir)
+	return Review{
+		Side:       d.side,
+		Verdict:    parseVerdict(screen),
+		Report:     tailLines(screen, 25),
+		DiffHash:   hash,
+		NoMoreBugs: parseNoMoreBugs(screen),
+	}
 }
 
 // submitAndWait writes text to the agent's pty (two-step to defeat paste-burst

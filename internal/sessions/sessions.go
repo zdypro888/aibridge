@@ -280,8 +280,11 @@ func sessionLabel(when, summary, id string) string {
 const summaryMaxRunes = 60
 
 // firstScanLines caps how many leading lines we read looking for the first user
-// message (transcripts can start with system/queue/attachment records).
-const firstScanLines = 40
+// message. It must be generous: an IDE-launched session can prepend dozens of
+// injected records (<ide_opened_file>, selections, queue ops) before the user's
+// real first message — observed past line 50 — so a small cap would miss it and
+// fall back to the bare id.
+const firstScanLines = 250
 
 // cleanSummary flattens whitespace and truncates to summaryMaxRunes runes.
 func cleanSummary(s string) string {

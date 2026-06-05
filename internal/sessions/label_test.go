@@ -32,26 +32,29 @@ func TestCleanSummary_Truncates(t *testing.T) {
 func TestFirstUserMessageClaude_SkipsSystemSeed(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "s.jsonl")
-	// First user line is a system seed (skip), second is the real one.
+	// A system seed (skip), an early real message, then the latest real message.
 	lines := `{"type":"queue-operation"}
 {"type":"user","message":{"role":"user","content":"Hello memory agent, observe."}}
 {"type":"user","message":{"role":"user","content":[{"type":"text","text":"修复启动时的 nil panic"}]}}
+{"type":"user","message":{"role":"user","content":"我要完美，修复所有问题"}}
 `
 	os.WriteFile(p, []byte(lines), 0o644)
-	if got := firstUserMessageClaude(p); got != "修复启动时的 nil panic" {
+	// Should return the LATEST real user message, skipping the seed.
+	if got := lastUserMessageClaude(p); got != "我要完美，修复所有问题" {
 		t.Fatalf("got %q", got)
 	}
 }
 
-func TestFirstUserMessageCodex_FindsUserMessage(t *testing.T) {
+func TestLastUserMessageCodex_FindsLatest(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "r.jsonl")
 	lines := `{"type":"session_meta","payload":{"id":"x","cwd":"/w"}}
 {"type":"event_msg","payload":{"type":"task_started"}}
 {"type":"event_msg","payload":{"type":"user_message","message":"全量分析下当前项目"}}
+{"type":"event_msg","payload":{"type":"user_message","message":"再帮我修一下这个 bug"}}
 `
 	os.WriteFile(p, []byte(lines), 0o644)
-	if got := firstUserMessageCodex(p); got != "全量分析下当前项目" {
+	if got := lastUserMessageCodex(p); got != "再帮我修一下这个 bug" {
 		t.Fatalf("got %q", got)
 	}
 }

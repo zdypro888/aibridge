@@ -119,57 +119,81 @@ func listClaude(projectsDir, repoDir, repoReal string) ([]Session, error) {
 			break
 		}
 		scanned++
-		cwd, first := claudeSessionMeta(c.path)
-		clean := filepath.Clean(cwd)
-		if cwd == "" || (clean != repoDir && clean != repoReal) {
+		cwd := filepath.Clean(claudeCwd(c.path))
+		if cwd == "" || (cwd != repoDir && cwd != repoReal) {
 			continue
 		}
+		// Only now (matched repo) do the full-file scan for the latest user message.
+		summary := lastUserMessageClaude(c.path)
 		id := strings.TrimSuffix(filepath.Base(c.path), ".jsonl")
 		when := c.mod.UTC().Format("2006-01-02 15:04")
 		out = append(out, Session{
 			ID:    id,
 			Time:  c.mod.UTC().Format("2006-01-02T15:04:05Z"),
-			Label: sessionLabel(when, first, id),
+			Label: sessionLabel(when, summary, id),
 		})
 	}
 	return out, nil
 }
 
-// claudeSessionMeta scans the start of a claude transcript for its recorded cwd
-// and the first real user message (summary). Best-effort.
-func claudeSessionMeta(path string) (cwd, firstUser string) {
+// claudeCwd reads just the recorded cwd from the start of a claude transcript
+// (cheap — only the leading lines). Used to filter sessions to the repo before
+// the more expensive full-file scan for the summary.
+func claudeCwd(path string) string {
 	f, err := os.Open(path)
 	if err != nil {
-		return "", ""
+		return ""
 	}
 	defer f.Close()
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 	for i := 0; i < firstScanLines && sc.Scan(); i++ {
 		var d struct {
+			Cwd string `json:"cwd"`
+		}
+		if json.Unmarshal(sc.Bytes(), &d) == nil && d.Cwd != "" {
+			return d.Cwd
+		}
+	}
+	return ""
+}
+
+// lastUserMessageClaude scans the WHOLE transcript and returns the LAST real user
+// message (skipping system/injected lines) — the user's most recent prompt, which
+// best identifies "where this session got to". Falls back to the first such
+// message if the tail is all machine content. Single streaming pass, low memory.
+func lastUserMessageClaude(path string) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
+	var first, last string
+	for sc.Scan() {
+		var d struct {
 			Type    string `json:"type"`
-			Cwd     string `json:"cwd"`
 			Message struct {
-				Role    string          `json:"role"`
 				Content json.RawMessage `json:"content"`
 			} `json:"message"`
 		}
-		if json.Unmarshal(sc.Bytes(), &d) != nil {
+		if json.Unmarshal(sc.Bytes(), &d) != nil || d.Type != "user" {
 			continue
 		}
-		if cwd == "" && d.Cwd != "" {
-			cwd = d.Cwd
+		txt := claudeContentText(d.Message.Content)
+		if txt == "" || looksLikeSystemSeed(txt) {
+			continue
 		}
-		if firstUser == "" && d.Type == "user" {
-			if txt := claudeContentText(d.Message.Content); txt != "" && !looksLikeSystemSeed(txt) {
-				firstUser = txt
-			}
+		if first == "" {
+			first = txt
 		}
-		if cwd != "" && firstUser != "" {
-			break
-		}
+		last = txt
 	}
-	return cwd, firstUser
+	if last != "" {
+		return last
+	}
+	return first
 }
 
 // codexMeta is the minimal shape of a codex session_meta first line.
@@ -227,7 +251,7 @@ func listCodex(root, repoDir, repoReal string) ([]Session, error) {
 		// timestamp is only when the session STARTED). Consistent with claude below.
 		when := f.mod.UTC().Format("2006-01-02 15:04")
 		sortKey := f.mod.UTC().Format("2006-01-02T15:04:05Z")
-		out = append(out, Session{ID: meta.Payload.ID, Time: sortKey, Label: sessionLabel(when, firstUserMessageCodex(f.path), meta.Payload.ID)})
+		out = append(out, Session{ID: meta.Payload.ID, Time: sortKey, Label: sessionLabel(when, lastUserMessageCodex(f.path), meta.Payload.ID)})
 	}
 	return out, nil
 }
@@ -311,7 +335,8 @@ func looksLikeSystemSeed(s string) bool {
 		"<system-reminder>",       // tooling preamble
 		"<ide_opened_file>",       // IDE auto-injected "opened file" notice
 		"<ide_",                   // any IDE-injected tag
-		"<command-",               // slash-command wrappers
+		"<command-",               // slash-command name/args wrappers
+		"<local-command-",         // slash-command stdout/stderr echo (e.g. /model output)
 		"caveat:",                 // tooling preamble
 		"the other agent just",    // our handoff next-turn prompt (EN)
 		"the other engineer just", // our problem-discussion handoff (EN)
@@ -333,36 +358,6 @@ func looksLikeSystemSeed(s string) bool {
 		}
 	}
 	return false
-}
-
-// firstUserMessageClaude scans the start of a claude transcript for the first
-// human user message text. Best-effort: returns "" if none found.
-func firstUserMessageClaude(path string) string {
-	f, err := os.Open(path)
-	if err != nil {
-		return ""
-	}
-	defer f.Close()
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
-	for i := 0; i < firstScanLines && sc.Scan(); i++ {
-		var d struct {
-			Type    string `json:"type"`
-			Message struct {
-				Role    string          `json:"role"`
-				Content json.RawMessage `json:"content"`
-			} `json:"message"`
-		}
-		if json.Unmarshal(sc.Bytes(), &d) != nil || d.Type != "user" {
-			continue
-		}
-		txt := claudeContentText(d.Message.Content)
-		if txt == "" || looksLikeSystemSeed(txt) {
-			continue
-		}
-		return txt
-	}
-	return ""
 }
 
 // claudeContentText extracts text from a claude message.content that may be a
@@ -389,17 +384,20 @@ func claudeContentText(raw json.RawMessage) string {
 	return ""
 }
 
-// firstUserMessageCodex scans the start of a codex rollout for the first user
-// message text (event_msg / user_message). Best-effort: returns "" if none.
-func firstUserMessageCodex(path string) string {
+// lastUserMessageCodex scans the WHOLE rollout and returns the LAST real user
+// message (event_msg / user_message), i.e. the user's most recent prompt — the
+// best identifier of where the session got to. Falls back to the first such
+// message. Single streaming pass.
+func lastUserMessageCodex(path string) string {
 	f, err := os.Open(path)
 	if err != nil {
 		return ""
 	}
 	defer f.Close()
 	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
-	for i := 0; i < firstScanLines && sc.Scan(); i++ {
+	sc.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
+	var first, last string
+	for sc.Scan() {
 		var d struct {
 			Type    string `json:"type"`
 			Payload struct {
@@ -415,10 +413,16 @@ func firstUserMessageCodex(path string) string {
 			if txt == "" || looksLikeSystemSeed(txt) {
 				continue
 			}
-			return txt
+			if first == "" {
+				first = txt
+			}
+			last = txt
 		}
 	}
-	return ""
+	if last != "" {
+		return last
+	}
+	return first
 }
 
 // shortID returns a compact form of a session id for display.

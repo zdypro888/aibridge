@@ -298,13 +298,34 @@ func cleanSummary(s string) string {
 // the user typed — so we skip it and keep looking for a human-meaningful line.
 func looksLikeSystemSeed(s string) bool {
 	t := strings.ToLower(strings.TrimSpace(s))
+	// Prefix-based seeds: machine/tooling content that leads the line.
 	for _, p := range []string{
 		"hello memory agent",
-		"you are one of two ai",        // our review prompts (EN)
-		"你是两个 ai",                      // our review prompts (ZH)
-		"<system-reminder>", "caveat:", // tooling preambles
+		"you are one of two ai",   // our review prompts (EN)
+		"你是两个 ai",                 // our review prompts (ZH)
+		"你是两个 ai 工程师",             // our problem-discussion prompt (ZH)
+		"you are one of two",      // broader catch for our prompts
+		"<system-reminder>",       // tooling preamble
+		"<ide_opened_file>",       // IDE auto-injected "opened file" notice
+		"<ide_",                   // any IDE-injected tag
+		"<command-",               // slash-command wrappers
+		"caveat:",                 // tooling preamble
+		"the other agent just",    // our handoff next-turn prompt (EN)
+		"the other engineer just", // our problem-discussion handoff (EN)
+		"另一个 agent 刚",             // our handoff next-turn prompt (ZH)
+		"另一个工程师刚",                 // our problem-discussion handoff (ZH)
 	} {
-		if strings.HasPrefix(t, p) || strings.Contains(t, p) {
+		if strings.HasPrefix(t, p) {
+			return true
+		}
+	}
+	// Substring-based markers that can appear slightly offset.
+	for _, p := range []string{
+		"previous reviewer was", // handoff note embedded by the loop
+		"<system-reminder>",
+		"<ide_opened_file>",
+	} {
+		if strings.Contains(t, p) {
 			return true
 		}
 	}

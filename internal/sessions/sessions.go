@@ -50,10 +50,16 @@ func List(side, repoDir string) ([]Session, error) {
 		abs = repoDir
 	}
 	abs = filepath.Clean(abs)
+	// Also compute the symlink-resolved form so a cwd recorded as e.g.
+	// /private/tmp/x still matches a configured /tmp/x (macOS) and vice versa.
+	absReal := abs
+	if r, rerr := filepath.EvalSymlinks(abs); rerr == nil {
+		absReal = filepath.Clean(r)
+	}
 
 	switch side {
 	case "codex":
-		return listCodex(filepath.Join(home, ".codex", "sessions"), abs)
+		return listCodex(filepath.Join(home, ".codex", "sessions"), abs, absReal)
 	case "claude":
 		return listClaude(filepath.Join(home, ".claude", "projects"), abs)
 	default:
@@ -83,7 +89,7 @@ func listClaude(projectsDir, repoDir string) ([]Session, error) {
 		}
 		id := strings.TrimSuffix(e.Name(), ".jsonl")
 		t := info.ModTime().UTC().Format("2006-01-02 15:04")
-		out = append(out, Session{ID: id, Time: info.ModTime().UTC().Format("2006-01-02T15:04:05Z"), Label: t + "  " + shortID(id)})
+		out = append(out, Session{ID: id, Time: info.ModTime().UTC().Format("2006-01-02T15:04:05Z"), Label: sessionLabel(t, firstUserMessageClaude(filepath.Join(dir, e.Name())), id)})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Time > out[j].Time })
 	return cap50(out), nil
@@ -102,7 +108,7 @@ type codexMeta struct {
 // listCodex walks ~/.codex/sessions, reads each rollout's first line, and keeps
 // the ones whose recorded cwd matches repoDir. Files are visited mtime-desc so
 // the most relevant sessions are found first.
-func listCodex(root, repoDir string) ([]Session, error) {
+func listCodex(root, repoDir, repoReal string) ([]Session, error) {
 	type fileMeta struct {
 		path  string
 		mtime int64
@@ -135,15 +141,16 @@ func listCodex(root, repoDir string) ([]Session, error) {
 		if !ok || meta.Type != "session_meta" {
 			continue
 		}
-		if filepath.Clean(meta.Payload.Cwd) != repoDir {
+		cwd := filepath.Clean(meta.Payload.Cwd)
+		if cwd != repoDir && cwd != repoReal {
 			continue
 		}
 		ts := meta.Payload.Timestamp
-		label := ts
+		when := ts
 		if len(ts) >= 16 {
-			label = strings.Replace(ts[:16], "T", " ", 1)
+			when = strings.Replace(ts[:16], "T", " ", 1)
 		}
-		out = append(out, Session{ID: meta.Payload.ID, Time: ts, Label: label + "  " + shortID(meta.Payload.ID)})
+		out = append(out, Session{ID: meta.Payload.ID, Time: ts, Label: sessionLabel(when, firstUserMessageCodex(f.path), meta.Payload.ID)})
 	}
 	return out, nil
 }
@@ -180,6 +187,137 @@ func claudeDirName(repoDir string) string {
 		}
 	}
 	return b.String()
+}
+
+// sessionLabel builds the picker label: "<when> · <summary>", falling back to the
+// short id when no summary could be extracted, so an entry is always recognizable.
+func sessionLabel(when, summary, id string) string {
+	summary = cleanSummary(summary)
+	if summary == "" {
+		return when + "  " + shortID(id)
+	}
+	return when + "  " + summary
+}
+
+// summaryMaxRunes bounds the summary length shown in the picker.
+const summaryMaxRunes = 60
+
+// firstScanLines caps how many leading lines we read looking for the first user
+// message (transcripts can start with system/queue/attachment records).
+const firstScanLines = 40
+
+// cleanSummary flattens whitespace and truncates to summaryMaxRunes runes.
+func cleanSummary(s string) string {
+	s = strings.TrimSpace(strings.Join(strings.Fields(s), " "))
+	r := []rune(s)
+	if len(r) > summaryMaxRunes {
+		return string(r[:summaryMaxRunes]) + "…"
+	}
+	return s
+}
+
+// looksLikeSystemSeed reports whether a first message is an automated/system seed
+// (e.g. memory-agent boot, our own injected review prompt) rather than something
+// the user typed — so we skip it and keep looking for a human-meaningful line.
+func looksLikeSystemSeed(s string) bool {
+	t := strings.ToLower(strings.TrimSpace(s))
+	for _, p := range []string{
+		"hello memory agent",
+		"you are one of two ai",        // our review prompts (EN)
+		"你是两个 ai",                      // our review prompts (ZH)
+		"<system-reminder>", "caveat:", // tooling preambles
+	} {
+		if strings.HasPrefix(t, p) || strings.Contains(t, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// firstUserMessageClaude scans the start of a claude transcript for the first
+// human user message text. Best-effort: returns "" if none found.
+func firstUserMessageClaude(path string) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	for i := 0; i < firstScanLines && sc.Scan(); i++ {
+		var d struct {
+			Type    string `json:"type"`
+			Message struct {
+				Role    string          `json:"role"`
+				Content json.RawMessage `json:"content"`
+			} `json:"message"`
+		}
+		if json.Unmarshal(sc.Bytes(), &d) != nil || d.Type != "user" {
+			continue
+		}
+		txt := claudeContentText(d.Message.Content)
+		if txt == "" || looksLikeSystemSeed(txt) {
+			continue
+		}
+		return txt
+	}
+	return ""
+}
+
+// claudeContentText extracts text from a claude message.content that may be a
+// plain string or an array of content blocks.
+func claudeContentText(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return s
+	}
+	var blocks []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if json.Unmarshal(raw, &blocks) == nil {
+		for _, b := range blocks {
+			if b.Type == "text" && strings.TrimSpace(b.Text) != "" {
+				return b.Text
+			}
+		}
+	}
+	return ""
+}
+
+// firstUserMessageCodex scans the start of a codex rollout for the first user
+// message text (event_msg / user_message). Best-effort: returns "" if none.
+func firstUserMessageCodex(path string) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	for i := 0; i < firstScanLines && sc.Scan(); i++ {
+		var d struct {
+			Type    string `json:"type"`
+			Payload struct {
+				Type    string `json:"type"`
+				Message string `json:"message"`
+			} `json:"payload"`
+		}
+		if json.Unmarshal(sc.Bytes(), &d) != nil {
+			continue
+		}
+		if d.Type == "event_msg" && d.Payload.Type == "user_message" {
+			txt := d.Payload.Message
+			if txt == "" || looksLikeSystemSeed(txt) {
+				continue
+			}
+			return txt
+		}
+	}
+	return ""
 }
 
 // shortID returns a compact form of a session id for display.

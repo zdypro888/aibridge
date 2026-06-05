@@ -57,7 +57,9 @@
   .ev { padding:2px 0; color:var(--muted); }
   .problem-row { display:flex; gap:8px; align-items:flex-start; padding:8px 16px; border-bottom:1px solid var(--border); background:var(--bg2); }
   .problem-row label { color:var(--accent); font-size:13px; font-weight:600; white-space:nowrap; padding-top:6px; }
-  .problem-row textarea { flex:1; background:#0a0d13; border:1px solid var(--border2); border-radius:var(--radius-sm); padding:6px 9px; font:13px/1.4 var(--sans); resize:vertical; }
+  .problem-row textarea { flex:1; background:#0a0d13; color:var(--fg); border:1px solid var(--border2); border-radius:var(--radius-sm); padding:6px 9px; font:13px/1.4 var(--sans); resize:vertical; }
+  .problem-row textarea::placeholder { color:var(--muted); }
+  .problem-row textarea:focus { outline:none; border-color:var(--accent); }
   .handoff { display:flex; gap:8px; margin-top:8px; }
   .handoff .ho-col { flex:1; min-width:0; background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:6px 10px; }
   .handoff .ho-h { font:600 12px var(--sans,sans-serif); color:var(--accent); margin-bottom:4px; }
@@ -158,7 +160,8 @@
   .term { background:#0a0d13; }
   .term-empty { color:var(--muted); font-size:13px; }
   .panel .ctl { padding:10px 12px; gap:8px; background:var(--bg2); border-top:1px solid var(--border); }
-  .panel .ctl input { background:#0a0d13; border:1px solid var(--border2); border-radius:var(--radius-sm); padding:8px 11px; font:13px/1 var(--mono); transition:border-color .14s; }
+  .panel .ctl input { background:#0a0d13; color:var(--fg); border:1px solid var(--border2); border-radius:var(--radius-sm); padding:8px 11px; font:13px/1 var(--mono); transition:border-color .14s; }
+  .panel .ctl input::placeholder { color:var(--muted); }
   .panel .ctl input:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(106,163,255,.15); }
 
   /* ---- timeline ---- */
@@ -187,9 +190,10 @@
   .cfg h3::before { content:""; width:3px; height:14px; border-radius:2px; background:var(--accent); }
   .cfg label { color:var(--muted); font-size:13px; }
   .cfg input,.cfg select,.cfg textarea {
-    background:#0a0d13; border:1px solid var(--border2); border-radius:var(--radius-sm);
+    background:#0a0d13; color:var(--fg); border:1px solid var(--border2); border-radius:var(--radius-sm);
     padding:8px 11px; font:13px/1.4 var(--sans); transition:border-color .14s, box-shadow .14s;
   }
+  .cfg input::placeholder,.cfg textarea::placeholder { color:var(--muted); }
   .cfg textarea { min-height:70px; font:12.5px/1.5 var(--mono); resize:vertical; }
   .cfg input:focus,.cfg select:focus,.cfg textarea:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(106,163,255,.15); }
   .cfg textarea::placeholder { color:#5a6678; opacity:.7; }

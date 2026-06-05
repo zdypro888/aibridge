@@ -62,38 +62,114 @@ func List(side, repoDir string) ([]Session, error) {
 	case "codex":
 		return listCodex(filepath.Join(home, ".codex", "sessions"), abs, absReal)
 	case "claude":
-		return listClaude(filepath.Join(home, ".claude", "projects"), abs)
+		return listClaude(filepath.Join(home, ".claude", "projects"), abs, absReal)
 	default:
 		return nil, fmt.Errorf("unknown side %q", side)
 	}
 }
 
-// listClaude reads ~/.claude/projects/<encoded-cwd>/*.jsonl. The id is the file
-// name; the time is the file mtime.
-func listClaude(projectsDir, repoDir string) ([]Session, error) {
-	dir := filepath.Join(projectsDir, claudeDirName(repoDir))
-	entries, err := os.ReadDir(dir)
+// listClaude finds this repo's claude sessions by scanning ALL project dirs under
+// ~/.claude/projects and matching each transcript's recorded cwd against repoDir
+// (or its symlink-resolved form). This avoids guessing claude's project-dir name
+// encoding (e.g. "/." -> "--", "." -> "-"), which is undocumented and was getting
+// the wrong/empty results. The id is the file name; the time is the file mtime.
+func listClaude(projectsDir, repoDir, repoReal string) ([]Session, error) {
+	projects, err := os.ReadDir(projectsDir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
 		}
 		return nil, err
 	}
-	var out []Session
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".jsonl") {
-			continue
-		}
-		info, ierr := e.Info()
-		if ierr != nil {
-			continue
-		}
-		id := strings.TrimSuffix(e.Name(), ".jsonl")
-		t := info.ModTime().UTC().Format("2006-01-02 15:04")
-		out = append(out, Session{ID: id, Time: info.ModTime().UTC().Format("2006-01-02T15:04:05Z"), Label: sessionLabel(t, firstUserMessageClaude(filepath.Join(dir, e.Name())), id)})
+	type cand struct {
+		path string
+		mod  time.Time
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Time > out[j].Time })
-	return cap50(out), nil
+	var cands []cand
+	for _, p := range projects {
+		if !p.IsDir() {
+			continue
+		}
+		pd := filepath.Join(projectsDir, p.Name())
+		files, derr := os.ReadDir(pd)
+		if derr != nil {
+			continue
+		}
+		for _, e := range files {
+			if e.IsDir() || !strings.HasSuffix(e.Name(), ".jsonl") {
+				continue
+			}
+			info, ierr := e.Info()
+			if ierr != nil {
+				continue
+			}
+			cands = append(cands, cand{path: filepath.Join(pd, e.Name()), mod: info.ModTime()})
+		}
+	}
+	// Newest first; cap scanning to a sane number of transcripts to bound cost.
+	sort.Slice(cands, func(i, j int) bool { return cands[i].mod.After(cands[j].mod) })
+
+	var out []Session
+	scanned := 0
+	for _, c := range cands {
+		if len(out) >= maxSessions {
+			break
+		}
+		if scanned >= 500 { // safety bound on a huge ~/.claude
+			break
+		}
+		scanned++
+		cwd, first := claudeSessionMeta(c.path)
+		clean := filepath.Clean(cwd)
+		if cwd == "" || (clean != repoDir && clean != repoReal) {
+			continue
+		}
+		id := strings.TrimSuffix(filepath.Base(c.path), ".jsonl")
+		when := c.mod.UTC().Format("2006-01-02 15:04")
+		out = append(out, Session{
+			ID:    id,
+			Time:  c.mod.UTC().Format("2006-01-02T15:04:05Z"),
+			Label: sessionLabel(when, first, id),
+		})
+	}
+	return out, nil
+}
+
+// claudeSessionMeta scans the start of a claude transcript for its recorded cwd
+// and the first real user message (summary). Best-effort.
+func claudeSessionMeta(path string) (cwd, firstUser string) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", ""
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	for i := 0; i < firstScanLines && sc.Scan(); i++ {
+		var d struct {
+			Type    string `json:"type"`
+			Cwd     string `json:"cwd"`
+			Message struct {
+				Role    string          `json:"role"`
+				Content json.RawMessage `json:"content"`
+			} `json:"message"`
+		}
+		if json.Unmarshal(sc.Bytes(), &d) != nil {
+			continue
+		}
+		if cwd == "" && d.Cwd != "" {
+			cwd = d.Cwd
+		}
+		if firstUser == "" && d.Type == "user" {
+			if txt := claudeContentText(d.Message.Content); txt != "" && !looksLikeSystemSeed(txt) {
+				firstUser = txt
+			}
+		}
+		if cwd != "" && firstUser != "" {
+			break
+		}
+	}
+	return cwd, firstUser
 }
 
 // codexMeta is the minimal shape of a codex session_meta first line.

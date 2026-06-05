@@ -18,29 +18,38 @@ func TestClaudeDirName(t *testing.T) {
 	}
 }
 
-func TestListClaude_FiltersByRepoAndSorts(t *testing.T) {
+func TestListClaude_MatchesByRecordedCwd(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	repo := "/work/proj"
-	dir := filepath.Join(home, ".claude", "projects", claudeDirName(repo))
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
+
+	// Put transcripts under ARBITRARY project-dir names (NOT the encoded cwd) to
+	// prove matching is by the recorded cwd inside the file, not the dir name.
+	mk := func(dirName, file, cwd string, mod time.Time) {
+		d := filepath.Join(home, ".claude", "projects", dirName)
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		body := `{"type":"attachment","cwd":"` + cwd + `"}` + "\n" +
+			`{"type":"user","message":{"role":"user","content":"hi there"}}` + "\n"
+		p := filepath.Join(d, file)
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(p, mod, mod); err != nil {
+			t.Fatal(err)
+		}
 	}
-	// Two sessions for this repo + a stray non-jsonl file.
-	writeAt(t, filepath.Join(dir, "aaaaaaaa-1111.jsonl"), time.Now().Add(-2*time.Hour))
-	writeAt(t, filepath.Join(dir, "bbbbbbbb-2222.jsonl"), time.Now())
-	writeAt(t, filepath.Join(dir, "notes.txt"), time.Now())
-	// A different repo's session must not leak in.
-	other := filepath.Join(home, ".claude", "projects", claudeDirName("/work/other"))
-	os.MkdirAll(other, 0o755)
-	writeAt(t, filepath.Join(other, "cccccccc-3333.jsonl"), time.Now())
+	mk("zzz-weird-name", "aaaaaaaa-1111.jsonl", repo, time.Now().Add(-2*time.Hour))
+	mk("another-dir", "bbbbbbbb-2222.jsonl", repo, time.Now())
+	mk("other-proj", "cccccccc-3333.jsonl", "/work/elsewhere", time.Now()) // must not leak
 
 	got, err := List("claude", repo)
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
 	if len(got) != 2 {
-		t.Fatalf("expected 2 sessions, got %d: %+v", len(got), got)
+		t.Fatalf("expected 2 sessions for %s, got %d: %+v", repo, len(got), got)
 	}
 	if got[0].ID != "bbbbbbbb-2222" {
 		t.Fatalf("expected newest first, got %q", got[0].ID)
@@ -83,15 +92,5 @@ func TestList_MissingStoreIsEmptyNotError(t *testing.T) {
 		if len(got) != 0 {
 			t.Fatalf("%s: expected empty, got %+v", side, got)
 		}
-	}
-}
-
-func writeAt(t *testing.T, path string, mod time.Time) {
-	t.Helper()
-	if err := os.WriteFile(path, []byte("{}\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chtimes(path, mod, mod); err != nil {
-		t.Fatal(err)
 	}
 }

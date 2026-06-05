@@ -53,9 +53,11 @@ type Library struct {
 const (
 	DefaultTemplateID    = "default"     // 修改审核: review the pending diff
 	FullReviewTemplateID = "full-review" // 代码全局审核: sweep the whole codebase
+	ProblemTemplateID    = "problem"     // 问题讨论: two agents discuss & fix a user problem
 
-	KindDiff = "diff"
-	KindFull = "full"
+	KindDiff    = "diff"
+	KindFull    = "full"
+	KindProblem = "problem"
 )
 
 // builtinTemplates returns the always-present built-in templates, in display
@@ -65,6 +67,7 @@ func builtinTemplates() []Template {
 	return []Template{
 		{ID: DefaultTemplateID, Name: "修改审核（go-audit 严格审查）", Kind: KindDiff},
 		{ID: FullReviewTemplateID, Name: "代码全局审核（go-audit 全量审查）", Kind: KindFull},
+		{ID: ProblemTemplateID, Name: "问题讨论（两个 AI 讨论并解决）", Kind: KindProblem},
 	}
 }
 

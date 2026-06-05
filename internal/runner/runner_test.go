@@ -14,7 +14,7 @@ func TestStart_RejectsNonRepo(t *testing.T) {
 	cfg := config.Default()
 	cfg.Repo = t.TempDir() // a real dir, but not a git repo
 	lib := promptlib.Default()
-	if err := r.Start(cfg, lib.ActiveTemplate(), ResumeSet{}); err == nil {
+	if err := r.Start(cfg, lib.ActiveTemplate(), ResumeSet{}, ""); err == nil {
 		t.Fatal("expected Start to reject a non-repo directory")
 	}
 	if r.Running() {

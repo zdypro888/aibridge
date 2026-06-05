@@ -110,6 +110,7 @@ func (s *Server) handleStart(w http.ResponseWriter, r *http.Request) {
 			Resume  bool   `json:"resume"`
 			Session string `json:"session"`
 		} `json:"claude"`
+		Problem string `json:"problem"` // problem-discussion kind: the user's problem text
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req) // tolerate empty/no body
 
@@ -121,7 +122,7 @@ func (s *Server) handleStart(w http.ResponseWriter, r *http.Request) {
 		Codex:  runner.Resume{Enabled: req.Codex.Resume, SessionID: req.Codex.Session},
 		Claude: runner.Resume{Enabled: req.Claude.Resume, SessionID: req.Claude.Session},
 	}
-	if err := s.run.Start(cfg, tmpl, resume); err != nil {
+	if err := s.run.Start(cfg, tmpl, resume, req.Problem); err != nil {
 		httpErr(w, http.StatusBadRequest, err)
 		return
 	}

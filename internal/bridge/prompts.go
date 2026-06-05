@@ -41,16 +41,21 @@ func normLang(s string) Lang {
 type ReviewKind string
 
 const (
-	KindDiff ReviewKind = "diff" // review the current uncommitted changes
-	KindFull ReviewKind = "full" // audit the entire codebase until nothing remains
+	KindDiff    ReviewKind = "diff"    // review the current uncommitted changes
+	KindFull    ReviewKind = "full"    // audit the entire codebase until nothing remains
+	KindProblem ReviewKind = "problem" // the two agents discuss a user-supplied problem and fix it
 )
 
 // normKind defaults blank/unknown to the diff review.
 func normKind(s string) ReviewKind {
-	if ReviewKind(s) == KindFull {
+	switch ReviewKind(s) {
+	case KindFull:
 		return KindFull
+	case KindProblem:
+		return KindProblem
+	default:
+		return KindDiff
 	}
-	return KindDiff
 }
 
 // ReviewMode selects how each turn's "what to look at next" is decided.
@@ -329,6 +334,50 @@ const (
 		`{{.ReplyLang}} {{.Verdict}}{{if .Ask}} {{.AskBlock}}{{end}}`
 )
 
+// Problem-discussion built-in templates: the user supplies a concrete problem
+// ({{.Problem}}); the two DIFFERENT models debate root cause and the best fix,
+// then converge on a solution and apply it. Same anti-churn / honest-convergence
+// doctrine, but goal-directed at the stated problem rather than a broad audit.
+const (
+	enProblemIntro = `You are one of two AI engineers — codex and claude, two DIFFERENT models — collaborating to solve a specific problem the user reported, by taking turns. ` +
+		`You debate the root cause and the best fix, challenge each other's reasoning, and converge on one solution that you then apply to the code. `
+
+	enProblemRules = `Work rigorously and aim for the CORRECT, complete fix — not a band-aid: ` +
+		`(1) Read the actual code/docs to find the TRUE root cause of the reported problem before proposing anything — do not guess; verify against the real code. ` +
+		`(2) Do NOT just agree with the other engineer — independently check their diagnosis and proposed fix. You are a DIFFERENT model; if their reasoning is wrong, incomplete, or treats a symptom instead of the cause, say so and correct it. Only agree when you genuinely concur. ` +
+		`(3) Once you and the other engineer agree on the fix, APPLY it: make complete, atomic edits — no TODOs, placeholders, or fake simplification. Fix the root cause, plus any directly-related bug the problem exposes. ` +
+		`(4) Do NOT make unrelated changes — don't rewrite/reformat/rename code that isn't part of the fix; cosmetic churn keeps the loop from converging. ` +
+		`(5) After editing, run the project's gates (build, vet, tests, formatter) and make sure they pass; add a test that reproduces the problem and now passes when sensible. ` +
+		`(6) Do NOT commit or stage — leave changes in the work tree so the other engineer can see them via git diff. ` +
+		`(7) Be honest about convergence: report done only when the problem is genuinely solved and you both agree the fix is correct — never just to end the loop. `
+
+	enProblemFirst = enProblemIntro + `The user's problem: {{.Problem}} ` + enProblemRules +
+		`Start by investigating: reproduce/understand the problem, find the root cause in the code, then propose (and if you're confident, apply) the fix. ` +
+		`{{.ReplyLang}} {{.Verdict}}{{if .Ask}} {{.AskBlock}}{{end}}`
+	enProblemNext = `The other engineer just took a turn on this problem ({{.Handoff}}). Recall the problem: {{.Problem}} ` + enProblemRules +
+		`Independently verify their diagnosis and any edits (git diff), push back if wrong, and move the solution forward — converge on and apply the correct fix. ` +
+		`{{.ReplyLang}} {{.Verdict}}{{if .Ask}} {{.AskBlock}}{{end}}`
+
+	zhProblemIntro = `你是两个 AI 工程师之一——codex 和 claude 是【两个不同的模型】，正在轮流协作解决用户报告的一个具体问题。` +
+		`你们就根因和最佳修复方案展开讨论、互相质疑推理，最终达成一致方案并把它落实到代码里。`
+
+	zhProblemRules = `请严谨工作，追求【正确且完整】的修复，而不是打补丁应付：` +
+		`(1) 在提出任何方案前，先读真实代码/文档，找到所报告问题的【真正根因】——不要臆断，要对照真实代码查证；` +
+		`(2) 不要只是附和另一个工程师——独立核验它的诊断和拟议修复。你是【不同的模型】；如果它的推理有误、不完整、或只治标不治本，要指出并纠正。只有真心认同时才同意；` +
+		`(3) 一旦你和对方就修复方案达成一致，就【落实】它：完整、原子的改动——不留 TODO、占位、虚假简化。修根因，并一并修复该问题牵连出的直接相关 bug；` +
+		`(4) 不要做无关改动——不要重写/重排版/改名与修复无关的代码；无意义改动会让循环无法收敛；` +
+		`(5) 改完后运行项目门禁（构建、vet、测试、格式化）并确保通过；合适时补一个能复现该问题、修复后通过的测试；` +
+		`(6) 不要提交或暂存——把改动留在工作区，好让对方通过 git diff 看到；` +
+		`(7) 诚实对待收敛：只有当问题确实解决、且双方都认同修复正确时才报告完成——绝不只为结束循环而敷衍。`
+
+	zhProblemFirst = zhProblemIntro + `用户的问题：{{.Problem}} ` + zhProblemRules +
+		`先开始调查：复现/理解问题，在代码里定位根因，然后提出（若有把握就直接落实）修复方案。` +
+		`{{.ReplyLang}} {{.Verdict}}{{if .Ask}} {{.AskBlock}}{{end}}`
+	zhProblemNext = `另一个工程师刚就这个问题做了一轮（{{.Handoff}}）。回顾问题：{{.Problem}} ` + zhProblemRules +
+		`独立核验它的诊断和改动（git diff），有误就反驳，推进方案——达成一致并落实正确的修复。` +
+		`{{.ReplyLang}} {{.Verdict}}{{if .Ask}} {{.AskBlock}}{{end}}`
+)
+
 // DefaultPrompts is the exported view of the built-in (first, next) template for
 // a kind+side+language. The web UI shows these as placeholders so an empty
 // per-agent prompt is understood as "use this default", and the user can
@@ -345,6 +394,12 @@ func defaultPrompts(kind ReviewKind, side string, l Lang) (first, next string) {
 			return zhFullFirst, zhFullNext
 		}
 		return enFullFirst, enFullNext
+	}
+	if kind == KindProblem {
+		if l == LangZH {
+			return zhProblemFirst, zhProblemNext
+		}
+		return enProblemFirst, enProblemNext
 	}
 	switch {
 	case side == "codex" && l == LangZH:
@@ -407,11 +462,16 @@ type PromptSet struct {
 	side      string
 	mode      ReviewMode
 	askPrompt string
-	turn      int // advances each Render; selects the rotating review focus
+	problem   string // user-supplied problem text for the problem-discussion kind
+	turn      int    // advances each Render; selects the rotating review focus
 }
 
 // SetMode selects the review mode for this set (default handoff if unset).
 func (p *PromptSet) SetMode(m ReviewMode) { p.mode = normMode(string(m)) }
+
+// SetProblem provides the user's problem text rendered into the problem template
+// ({{.Problem}}).
+func (p *PromptSet) SetProblem(s string) { p.problem = s }
 
 // NewPromptSet compiles a side's templates for the given language, falling back
 // to that language's built-in defaults when a string is empty. Returns an error
@@ -452,6 +512,7 @@ type promptData struct {
 	Verdict   string
 	AskBlock  string
 	ReplyLang string
+	Problem   string // user-supplied problem text (problem-discussion kind)
 }
 
 // Render builds the prompt for a turn. handoff=="" selects the first-turn
@@ -464,6 +525,7 @@ func (p *PromptSet) Render(handoff string, ask bool) string {
 		Verdict:   verdictInstruction(p.lang),
 		AskBlock:  askInstruction(p.lang, p.askPrompt),
 		ReplyLang: replyLangDirective(p.lang),
+		Problem:   p.problem,
 	}
 
 	var out string

@@ -50,6 +50,9 @@
   section.wide { padding:0 16px 16px; }
   .timeline { background:var(--panel); border:1px solid var(--border); border-radius:8px; max-height:24vh; overflow:auto; padding:8px 12px; }
   .ev { padding:2px 0; color:var(--muted); }
+  .problem-row { display:flex; gap:8px; align-items:flex-start; padding:8px 16px; border-bottom:1px solid var(--border); background:var(--bg2); }
+  .problem-row label { color:var(--accent); font-size:13px; font-weight:600; white-space:nowrap; padding-top:6px; }
+  .problem-row textarea { flex:1; background:#0a0d13; border:1px solid var(--border2); border-radius:var(--radius-sm); padding:6px 9px; font:13px/1.4 var(--sans); resize:vertical; }
   .handoff { display:flex; gap:8px; margin-top:8px; }
   .handoff .ho-col { flex:1; min-width:0; background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:6px 10px; }
   .handoff .ho-h { font:600 12px var(--sans,sans-serif); color:var(--accent); margin-bottom:4px; }
@@ -262,6 +265,11 @@
   <button id="btnConfig" data-i18n="config" data-i18n-title="ttConfig"></button>
 </div>
 
+<div id="problemRow" class="problem-row" style="display:none">
+  <label data-i18n="problemLabel"></label>
+  <textarea id="problemText" data-i18n-ph="problemPh" rows="2"></textarea>
+</div>
+
 <div class="banner" id="banner"></div>
 
 <section class="wide">
@@ -350,6 +358,7 @@ const I18N = {
     cfgAddr: "Web addr", cfgFlow: "Flow", cfgFirst: "First reviewer",
     cfgMaxRounds: "Max rounds (0 = unlimited)", cfgStrategy: "Convergence strategy",
     cfgReviewMode: "Review mode",
+    problemLabel: "Problem:", problemPh: "Describe the problem for the two AIs to discuss and fix…",
     tmplModeHint: "handoff/mcp: the peer writes each next-turn prompt (only the first-turn fields apply). rotate/plain: first + next fields both apply.",
     hoEmpty: "(waiting…)", hoConverged: "✓ nothing left",
     cfgEnabled: "Enabled", cfgCommand: "Command", cfgStable: "Stable for", cfgSettle: "Settle for",
@@ -386,6 +395,7 @@ const I18N = {
     cfgAddr: "Web 地址", cfgFlow: "流程", cfgFirst: "谁先审",
     cfgMaxRounds: "最大轮次 (0 = 无限)", cfgStrategy: "收敛策略",
     cfgReviewMode: "审查模式",
+    problemLabel: "问题:", problemPh: "描述要让两个 AI 讨论并解决的问题…",
     tmplModeHint: "handoff/mcp:下一轮提示词由对方现场写(只有首轮字段生效)。rotate/plain:首轮+后续轮都生效。",
     hoEmpty: "(等待中…)", hoConverged: "✓ 没有可查的了",
     cfgEnabled: "启用", cfgCommand: "启动命令", cfgStable: "稳定判定", cfgSettle: "等待启动",
@@ -692,9 +702,30 @@ async function refreshHandoff() {
   fill("Claude", h.claude, h.claude_converged);
 }
 
+// problemActive reflects whether the active template's kind is "problem"
+// (controls the problem input row + whether we send the problem text on start).
+let problemActive = false;
+
+// refreshProblemRow checks the active template's kind and shows the problem input
+// only for the problem-discussion template.
+async function refreshProblemRow() {
+  try {
+    const lib = await api("/api/templates");
+    const t = (lib.templates || []).find((x) => x.id === lib.active);
+    problemActive = !!(t && t.kind === "problem");
+  } catch { problemActive = false; }
+  $("problemRow").style.display = problemActive ? "flex" : "none";
+}
+
 $("btnStart").onclick = async () => {
   try {
-    await api("/api/start", "POST", { codex: resumeChoice("codex"), claude: resumeChoice("claude") });
+    const body = { codex: resumeChoice("codex"), claude: resumeChoice("claude") };
+    if (problemActive) {
+      const p = $("problemText").value.trim();
+      if (!p) { banner(t("problemPh"), false); return; }
+      body.problem = p;
+    }
+    await api("/api/start", "POST", body);
     setRunning(true);
   } catch (e) { banner(e.message, false); }
 };
@@ -880,6 +911,7 @@ $("tmplForm").addEventListener("submit", async (e) => {
       CFG = cfg;
     }
     banner(t("tmplSaved"), true);
+    refreshProblemRow(); // active template may have changed to/from the problem kind
   } catch (err) { banner(err.message, false); }
 });
 
@@ -936,6 +968,7 @@ $("cfgForm").addEventListener("submit", async (e) => {
     showStrategyLine(CFG);
   } catch {}
   populateAllSessions();
+  refreshProblemRow();
   // syncRunState reconciles drive/running/terminals with the server; connect()
   // also calls it on every (re)connect, so a live run is always reflected.
   await syncRunState();

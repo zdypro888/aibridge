@@ -29,6 +29,11 @@
   button.toggle.on { background:var(--accent); color:#0d1117; border-color:var(--accent); font-weight:600; }
   .bar { display:flex; gap:8px; padding:10px 16px; flex-wrap:wrap; align-items:center; border-bottom:1px solid var(--border); }
   .sep { width:1px; align-self:stretch; background:var(--border); margin:0 4px; }
+  /* session resume on its own row so the summaries have room and the toolbar stays clean */
+  .session-row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; padding:8px 16px; border-bottom:1px solid var(--border); background:var(--bg2); }
+  .session-row .rslab { color:var(--muted); font-size:13px; }
+  .session-row .rsname { color:var(--muted); font-size:12px; font-family:var(--mono,monospace); }
+  .session-row .rssel { flex:1; min-width:180px; }
   /* Responsive: two columns when there's room, auto-collapse to one when narrow.
      minmax(360px,1fr) means each panel needs >=360px or the grid drops to a
      single column — no media query needed for the main split. */
@@ -257,12 +262,14 @@
   <span style="color:var(--muted)" data-i18n="drive" data-i18n-title="ttDrive"></span>
   <button class="toggle" data-toggle="codex" data-i18n-title="ttToggleCodex">codex</button>
   <button class="toggle" data-toggle="claude" data-i18n-title="ttToggleClaude">claude</button>
-  <span class="sep"></span>
+  <button id="btnTemplates" style="margin-left:auto" data-i18n="templates" data-i18n-title="ttTemplates"></button>
+  <button id="btnConfig" data-i18n="config" data-i18n-title="ttConfig"></button>
+</div>
+
+<div class="session-row">
   <span class="rslab" data-i18n="resumeLabel" data-i18n-title="ttResumeSession"></span>
   <span class="rsname">codex</span><select id="rscodex" class="rssel" data-i18n-title="ttResumeSession"></select>
   <span class="rsname">claude</span><select id="rsclaude" class="rssel" data-i18n-title="ttResumeSession"></select>
-  <button id="btnTemplates" style="margin-left:auto" data-i18n="templates" data-i18n-title="ttTemplates"></button>
-  <button id="btnConfig" data-i18n="config" data-i18n-title="ttConfig"></button>
 </div>
 
 <div id="problemRow" class="problem-row" style="display:none">

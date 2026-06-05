@@ -24,6 +24,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
 
 // Session is one resumable prior conversation for an agent.
@@ -112,6 +113,7 @@ func listCodex(root, repoDir, repoReal string) ([]Session, error) {
 	type fileMeta struct {
 		path  string
 		mtime int64
+		mod   time.Time
 	}
 	var files []fileMeta
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
@@ -121,7 +123,7 @@ func listCodex(root, repoDir, repoReal string) ([]Session, error) {
 		if info.IsDir() || !strings.HasSuffix(path, ".jsonl") {
 			return nil
 		}
-		files = append(files, fileMeta{path: path, mtime: info.ModTime().UnixNano()})
+		files = append(files, fileMeta{path: path, mtime: info.ModTime().UnixNano(), mod: info.ModTime()})
 		return nil
 	})
 	if err != nil {
@@ -145,12 +147,11 @@ func listCodex(root, repoDir, repoReal string) ([]Session, error) {
 		if cwd != repoDir && cwd != repoReal {
 			continue
 		}
-		ts := meta.Payload.Timestamp
-		when := ts
-		if len(ts) >= 16 {
-			when = strings.Replace(ts[:16], "T", " ", 1)
-		}
-		out = append(out, Session{ID: meta.Payload.ID, Time: ts, Label: sessionLabel(when, firstUserMessageCodex(f.path), meta.Payload.ID)})
+		// Use the file's last-modified time = last activity (the session_meta
+		// timestamp is only when the session STARTED). Consistent with claude below.
+		when := f.mod.UTC().Format("2006-01-02 15:04")
+		sortKey := f.mod.UTC().Format("2006-01-02T15:04:05Z")
+		out = append(out, Session{ID: meta.Payload.ID, Time: sortKey, Label: sessionLabel(when, firstUserMessageCodex(f.path), meta.Payload.ID)})
 	}
 	return out, nil
 }

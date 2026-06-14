@@ -14,9 +14,10 @@ const (
 	EventTurnFinished EventKind = "turn_finished"
 	EventScreen       EventKind = "screen" // a fresh screen capture for one side
 	EventConverged    EventKind = "converged"
-	EventStopped      EventKind = "stopped" // run ended (converged, capped, or aborted)
-	EventLog          EventKind = "log"     // human-readable progress line
-	EventControl      EventKind = "control" // a control command was applied
+	EventStopped      EventKind = "stopped"     // run ended (converged, capped, or aborted)
+	EventLog          EventKind = "log"         // human-readable progress line
+	EventControl      EventKind = "control"     // a control command was applied
+	EventOscillation  EventKind = "oscillation" // work tree returned to an earlier agent-produced state (edit war)
 )
 
 // Event is one thing that happened during a run, fanned out to all subscribers
@@ -97,10 +98,4 @@ func (b *Bus) Subscribe() (<-chan Event, []Event, func()) {
 			close(c)
 		}
 	}
-}
-
-// Helpers for the loop to publish without constructing structs everywhere.
-
-func (b *Bus) Log(format string, args ...any) {
-	b.Publish(Event{Kind: EventLog, Message: sprintf(format, args...)})
 }

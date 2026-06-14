@@ -147,15 +147,21 @@ func claudeCwd(path string) string {
 	defer f.Close()
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+	var cwd string
 	for i := 0; i < firstScanLines && sc.Scan(); i++ {
 		var d struct {
 			Cwd string `json:"cwd"`
 		}
 		if json.Unmarshal(sc.Bytes(), &d) == nil && d.Cwd != "" {
-			return d.Cwd
+			cwd = d.Cwd
+			break
 		}
 	}
-	return ""
+	if err := sc.Err(); err != nil {
+		// A read error in the leading lines means we can't trust the cwd.
+		return ""
+	}
+	return cwd
 }
 
 // lastUserMessageClaude scans the WHOLE transcript and returns the LAST real user
@@ -189,6 +195,12 @@ func lastUserMessageClaude(path string) string {
 			first = txt
 		}
 		last = txt
+	}
+	if err := sc.Err(); err != nil {
+		// The scan stopped on a read error before EOF, so `last` may not be the true
+		// most-recent message. Fall back to `first`, which was read reliably at the
+		// start of the file.
+		return first
 	}
 	if last != "" {
 		return last
@@ -419,6 +431,12 @@ func lastUserMessageCodex(path string) string {
 			last = txt
 		}
 	}
+	if err := sc.Err(); err != nil {
+		// The scan stopped on a read error before EOF, so `last` may not be the true
+		// most-recent message. Fall back to `first`, which was read reliably at the
+		// start of the file.
+		return first
+	}
 	if last != "" {
 		return last
 	}
@@ -431,11 +449,4 @@ func shortID(id string) string {
 		return id[:8]
 	}
 	return id
-}
-
-func cap50(s []Session) []Session {
-	if len(s) > maxSessions {
-		return s[:maxSessions]
-	}
-	return s
 }

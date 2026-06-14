@@ -56,7 +56,14 @@ func (s *Server) handleTerminal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
+	// Default options (no InsecureSkipVerify) enforce coder/websocket's same-origin
+	// check: a WS upgrade is accepted only when the request's Origin host matches
+	// the Host it was served from (and non-browser clients with no Origin still
+	// pass). This blocks a malicious local web page from opening /ws/terminal and
+	// injecting keystrokes into the agent's PTY, while the dashboard's own
+	// same-origin connections — including those behind a Host-preserving reverse
+	// proxy — keep working.
+	conn, err := websocket.Accept(w, r, nil)
 	if err != nil {
 		return
 	}

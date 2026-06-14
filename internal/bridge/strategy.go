@@ -23,8 +23,8 @@ type Strategy interface {
 	NeedsAsk() bool
 }
 
-// NewStrategy builds the configured convergence strategy. askToken/clearToken are
-// the verdict-style tokens the ask-gate looks for in the agent's reply.
+// NewStrategy builds the configured convergence strategy by name
+// ("ask-gate" | "diff-fixpoint" | anything else => "combined", the default).
 func NewStrategy(name string) Strategy {
 	switch name {
 	case "ask-gate":

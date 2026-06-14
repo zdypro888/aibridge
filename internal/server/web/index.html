@@ -812,10 +812,10 @@ function renderConfig(cfg) {
 
 // ---- prompt template library ----
 // The library is separate from run config: a set of named templates, each with
-// both agents' first/next prompts + an ask question. Two built-ins ship and are
-// read-only ("修改审核" diff review, "代码全局审核" whole-codebase sweep); empty
+// both agents' first/next prompts + an ask question. Built-ins ship read-only
+// (diff review, whole-codebase sweep, and problem discussion); empty
 // fields fall back to the built-in go-audit doctrine, shown as grey placeholders.
-const TBUILTIN = ["default", "full-review"];
+const TBUILTIN = ["default", "full-review", "problem"];
 let TLIB = { active: "default", templates: [] };
 let TDEF = {}; // built-in defaults for the editing template's kind (placeholders)
 let tSel = "default"; // id of the template currently shown/selected (also = active on save)

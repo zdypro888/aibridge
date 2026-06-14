@@ -4,9 +4,11 @@
 package server
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"net/http"
 	"sync"
@@ -36,6 +38,12 @@ type Server struct {
 func New(cfg config.Config, configPath string, lib promptlib.Library, promptsPath string) *Server {
 	return &Server{cfg: cfg, configPath: configPath, lib: lib, promptsPath: promptsPath, run: runner.New()}
 }
+
+// Stop aborts the active bridge run, if any.
+func (s *Server) Stop() { s.run.Stop() }
+
+// Wait blocks until the active bridge run has completed cleanup.
+func (s *Server) Wait(ctx context.Context) error { return s.run.Wait(ctx) }
 
 // Handler returns the root HTTP handler (static UI + /api/*).
 func (s *Server) Handler() http.Handler {
@@ -112,7 +120,10 @@ func (s *Server) handleStart(w http.ResponseWriter, r *http.Request) {
 		} `json:"claude"`
 		Problem string `json:"problem"` // problem-discussion kind: the user's problem text
 	}
-	_ = json.NewDecoder(r.Body).Decode(&req) // tolerate empty/no body
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+		httpErr(w, http.StatusBadRequest, err)
+		return
+	}
 
 	s.mu.Lock()
 	cfg := s.cfg
@@ -146,6 +157,7 @@ func (s *Server) handleTemplates(w http.ResponseWriter, r *http.Request) {
 			httpErr(w, http.StatusBadRequest, err)
 			return
 		}
+		lib.Normalize()
 		if err := lib.Validate(); err != nil {
 			httpErr(w, http.StatusBadRequest, err)
 			return

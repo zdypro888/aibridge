@@ -44,6 +44,7 @@ func TestParseNoMoreBugs(t *testing.T) {
 		{"more bugs", "AUDIT_RESULT: ISSUES\nMORE_BUGS", false},
 		{"more bugs after verdict beats echoed no_more", "write NO_MORE_BUGS or MORE_BUGS\nAUDIT_RESULT: ISSUES\nMORE_BUGS", false},
 		{"no_more after verdict, echoed tokens before ignored", "...MORE_BUGS...\nAUDIT_RESULT: CLEAN\nNO_MORE_BUGS", true},
+		{"no verdict ignores echoed no_more", "write NO_MORE_BUGS when done", false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

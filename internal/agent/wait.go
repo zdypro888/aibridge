@@ -59,7 +59,7 @@ func WaitIdle(ctx context.Context, o WaitOpts, baseline string, screen func() st
 	defer ticker.Stop()
 
 	moved := false
-	var last string
+	last := baseline
 	var lastChange time.Time
 	lastActivity := start // last time we saw Busy or a screen change; resets the stuck timer
 	settleDeadline := start.Add(o.Settle)

@@ -101,6 +101,7 @@ type Runner struct {
 	last    *bridge.Outcome
 	cancel  context.CancelFunc
 	agents  map[string]*agent.Agent // side -> live agent (for web terminal attach)
+	done    chan struct{}           // closed after run cleanup, including MCP config restore
 }
 
 // New creates an idle runner with a fresh event bus and control surface.
@@ -143,6 +144,23 @@ func (r *Runner) LastOutcome() *bridge.Outcome {
 	return r.last
 }
 
+// Wait blocks until the current run has fully finished cleanup, or until ctx is
+// canceled. If no run is active, it returns immediately.
+func (r *Runner) Wait(ctx context.Context) error {
+	r.mu.Lock()
+	done := r.done
+	r.mu.Unlock()
+	if done == nil {
+		return nil
+	}
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 // Start validates the config and launches a run in the background using the
 // given prompt template. It returns an error synchronously for setup failures
 // (bad config, not a repo, agent launch).
@@ -153,12 +171,18 @@ func (r *Runner) Start(cfg config.Config, tmpl promptlib.Template, resume Resume
 		return fmt.Errorf("a run is already in progress")
 	}
 	preselectedOnlySide, _ := r.ctrl.State()["onlySide"].(string)
+	done := make(chan struct{})
 	r.running = true
+	r.done = done
 	r.mu.Unlock()
 
 	clearRunning := func() {
 		r.mu.Lock()
 		r.running = false
+		if r.done == done {
+			r.done = nil
+			close(done)
+		}
 		r.mu.Unlock()
 	}
 
@@ -177,16 +201,20 @@ func (r *Runner) Start(cfg config.Config, tmpl promptlib.Template, resume Resume
 
 	// In MCP mode, write the per-repo MCP client config so each CLI connects back
 	// to our /mcp endpoint. Repo-scoped only — never touches global user config.
+	mcpCleanup := func() error { return nil }
 	if bridge.ReviewMode(cfg.Flow.ReviewMode) == bridge.ModeMCP {
 		r.hub.Reset() // clear last run's handoff cache
-		if err := bridge.WriteMCPConfig(cfg.Repo, cfg.Server.Addr, cfg.Flow.CodexRmcp()); err != nil {
+		var mcpErr error
+		mcpCleanup, mcpErr = bridge.WriteMCPConfig(cfg.Repo, cfg.Server.Addr, cfg.Flow.CodexRmcp())
+		if mcpErr != nil {
 			clearRunning()
-			return fmt.Errorf("write mcp config: %w", err)
+			return fmt.Errorf("write mcp config: %w", mcpErr)
 		}
 	}
 
 	codexDrv, claudeDrv, agents, cleanup, err := r.buildDrivers(cfg, tmpl, resume, problem)
 	if err != nil {
+		_ = mcpCleanup()
 		clearRunning()
 		return err
 	}
@@ -203,7 +231,6 @@ func (r *Runner) Start(cfg config.Config, tmpl promptlib.Template, resume Resume
 	r.mu.Unlock()
 
 	go func() {
-		defer cleanup()
 		out, _ := bridge.Run(ctx, bridge.Config{
 			MaxRounds: cfg.Flow.MaxRounds,
 			FirstSide: cfg.Flow.First,
@@ -215,11 +242,17 @@ func (r *Runner) Start(cfg config.Config, tmpl promptlib.Template, resume Resume
 			Bus:    r.bus,
 			Ctrl:   ctrl,
 		})
+		cleanup()
+		_ = mcpCleanup()
 		r.mu.Lock()
 		r.running = false
 		r.last = &out
 		r.cancel = nil
 		r.agents = map[string]*agent.Agent{}
+		if r.done == done {
+			r.done = nil
+			close(done)
+		}
 		r.mu.Unlock()
 	}()
 	return nil

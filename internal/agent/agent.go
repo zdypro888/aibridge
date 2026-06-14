@@ -43,11 +43,15 @@ type Agent struct {
 	subs   map[int]chan []byte // raw-byte subscribers (websocket clients)
 	nextID int
 	closed bool
+
+	waitOnce sync.Once
+	waitDone chan struct{}
+	waitErr  error
 }
 
 // New returns an un-started agent named "codex"/"claude".
 func New(name string) *Agent {
-	return &Agent{name: name, subs: make(map[int]chan []byte)}
+	return &Agent{name: name, subs: make(map[int]chan []byte), waitDone: make(chan struct{})}
 }
 
 func (a *Agent) Name() string { return a.name }
@@ -108,6 +112,7 @@ func (a *Agent) readLoop() {
 				delete(a.subs, id)
 			}
 			a.mu.Unlock()
+			_ = a.wait()
 			return
 		}
 	}
@@ -194,7 +199,20 @@ func (a *Agent) Kill() error {
 	}
 	if a.cmd != nil && a.cmd.Process != nil {
 		_ = a.cmd.Process.Kill()
-		_, _ = a.cmd.Process.Wait()
 	}
+	_ = a.wait()
 	return nil
+}
+
+func (a *Agent) wait() error {
+	if a.cmd == nil {
+		return nil
+	}
+	a.waitOnce.Do(func() {
+		a.waitErr = a.cmd.Wait()
+		if a.waitDone != nil {
+			close(a.waitDone)
+		}
+	})
+	return a.waitErr
 }

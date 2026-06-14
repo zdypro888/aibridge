@@ -86,12 +86,12 @@ func (a *askGate) Name() string   { return "ask-gate" }
 func (a *askGate) NeedsAsk() bool { return true }
 
 func (a *askGate) Observe(rev Review, _ bool) {
-	if rev.NoMoreBugs {
+	if rev.Verdict == VerdictClean && rev.NoMoreBugs {
 		a.noStreak++
 		a.reason = "agent confirmed no more bugs"
 	} else {
 		a.noStreak = 0
-		a.reason = "agent did not confirm clean (or found more bugs)"
+		a.reason = "agent did not report clean and confirm no more bugs"
 	}
 }
 

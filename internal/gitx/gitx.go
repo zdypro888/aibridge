@@ -79,11 +79,35 @@ func untrackedContent(dir string) (string, error) {
 
 	var b strings.Builder
 	for _, f := range files {
-		raw, rerr := os.ReadFile(filepath.Join(dir, f))
-		if rerr != nil {
+		full := filepath.Join(dir, f)
+		// Lstat (not Stat) so a symlink is seen as a symlink, not its target.
+		fi, lerr := os.Lstat(full)
+		if lerr != nil {
 			continue
 		}
-		fmt.Fprintf(&b, "\n+++ untracked %s\n%s", f, raw)
+		switch {
+		case fi.Mode()&os.ModeSymlink != 0:
+			// Record the link target string — exactly what git stores for a
+			// symlink — instead of os.ReadFile'ing through it. Following the link
+			// would splice an arbitrary external file's content (e.g. a symlink to
+			// /etc/passwd or a file outside the repo) into the diff that is handed
+			// to the other agent and rendered in the web UI, and would make the
+			// convergence hash drift whenever that external target changes.
+			target, terr := os.Readlink(full)
+			if terr != nil {
+				continue
+			}
+			fmt.Fprintf(&b, "\n+++ untracked %s -> %s\n", f, target)
+		case fi.Mode().IsRegular():
+			raw, rerr := os.ReadFile(full)
+			if rerr != nil {
+				continue
+			}
+			fmt.Fprintf(&b, "\n+++ untracked %s\n%s", f, raw)
+		default:
+			// Fifos/devices/sockets aren't content git would track (git omits them
+			// from ls-files), but skip defensively: reading one can block forever.
+		}
 	}
 	return b.String(), nil
 }

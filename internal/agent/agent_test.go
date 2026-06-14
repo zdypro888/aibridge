@@ -84,4 +84,21 @@ func TestAgent_SubscribeAfterExitClosesChannel(t *testing.T) {
 	}
 }
 
+func TestAgent_ReapsNaturalExit(t *testing.T) {
+	a := New("test")
+	if err := a.Start(t.TempDir(), "printf done", 80, 24); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	t.Cleanup(func() { a.Kill() })
+
+	select {
+	case <-a.waitDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("agent process exited but was not reaped")
+	}
+	if !a.cmd.ProcessState.Exited() {
+		t.Fatalf("process state should be exited, got %v", a.cmd.ProcessState)
+	}
+}
+
 func shquote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }

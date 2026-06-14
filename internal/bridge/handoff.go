@@ -52,28 +52,58 @@ func ensureHandoffDir(repoDir string) error {
 	return nil
 }
 
-// addLocalGitExclude appends pattern to .git/info/exclude if not already present.
+// addLocalGitExclude appends pattern to .git/info/exclude if not already present
+// and reports whether it actually appended a line.
 // This is git's repo-local ignore list — it does not modify the tracked
 // .gitignore. No-op when .git/info isn't writable (e.g. not a standard repo).
-func addLocalGitExclude(repoDir, pattern string) {
+func addLocalGitExclude(repoDir, pattern string) bool {
 	excl := filepath.Join(repoDir, ".git", "info", "exclude")
 	if data, err := os.ReadFile(excl); err == nil {
 		for line := range strings.SplitSeq(string(data), "\n") {
 			if strings.TrimSpace(line) == pattern {
-				return // already excluded
+				return false // already excluded
 			}
 		}
 		body := string(data)
 		if body != "" && !strings.HasSuffix(body, "\n") {
 			body += "\n"
 		}
-		_ = os.WriteFile(excl, []byte(body+pattern+"\n"), 0o644)
-		return
+		return os.WriteFile(excl, []byte(body+pattern+"\n"), 0o644) == nil
 	}
 	// .git/info/exclude missing: try to create it (dir may not exist).
 	if err := os.MkdirAll(filepath.Join(repoDir, ".git", "info"), 0o755); err == nil {
-		_ = os.WriteFile(excl, []byte(pattern+"\n"), 0o644)
+		return os.WriteFile(excl, []byte(pattern+"\n"), 0o644) == nil
 	}
+	return false
+}
+
+// removeLocalGitExclude removes one exact pattern line from .git/info/exclude.
+// It is used only for patterns this process appended, so pre-existing user lines
+// are left alone.
+func removeLocalGitExclude(repoDir, pattern string) error {
+	excl := filepath.Join(repoDir, ".git", "info", "exclude")
+	data, err := os.ReadFile(excl)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	lines := strings.Split(string(data), "\n")
+	removed := false
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if !removed && strings.TrimSpace(line) == pattern {
+			removed = true
+			continue
+		}
+		out = append(out, line)
+	}
+	if !removed {
+		return nil
+	}
+	body := strings.Join(out, "\n")
+	return os.WriteFile(excl, []byte(body), 0o644)
 }
 
 // handoffVerdictRe matches an optional leading verdict line the writing agent may

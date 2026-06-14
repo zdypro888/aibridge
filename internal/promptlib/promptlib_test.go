@@ -65,14 +65,15 @@ func TestNormalizeReinsertsDefaultAndFixesActive(t *testing.T) {
 	}
 }
 
-// TestDefaultHasBothBuiltins verifies both built-in templates ship by default
+// TestDefaultHasBuiltins verifies built-in templates ship by default
 // with the right review kinds.
-func TestDefaultHasBothBuiltins(t *testing.T) {
+func TestDefaultHasBuiltins(t *testing.T) {
 	lib := Default()
 	d := lib.Get(DefaultTemplateID)
 	f := lib.Get(FullReviewTemplateID)
-	if d == nil || f == nil {
-		t.Fatalf("both built-ins must exist: diff=%v full=%v", d != nil, f != nil)
+	p := lib.Get(ProblemTemplateID)
+	if d == nil || f == nil || p == nil {
+		t.Fatalf("built-ins must exist: diff=%v full=%v problem=%v", d != nil, f != nil, p != nil)
 	}
 	if d.ReviewKind() != KindDiff {
 		t.Fatalf("default kind = %q, want %q", d.ReviewKind(), KindDiff)
@@ -80,8 +81,11 @@ func TestDefaultHasBothBuiltins(t *testing.T) {
 	if f.ReviewKind() != KindFull {
 		t.Fatalf("full-review kind = %q, want %q", f.ReviewKind(), KindFull)
 	}
-	if !IsBuiltin(DefaultTemplateID) || !IsBuiltin(FullReviewTemplateID) {
-		t.Fatal("both built-in ids must report IsBuiltin")
+	if p.ReviewKind() != KindProblem {
+		t.Fatalf("problem kind = %q, want %q", p.ReviewKind(), KindProblem)
+	}
+	if !IsBuiltin(DefaultTemplateID) || !IsBuiltin(FullReviewTemplateID) || !IsBuiltin(ProblemTemplateID) {
+		t.Fatal("built-in ids must report IsBuiltin")
 	}
 	if IsBuiltin("custom") {
 		t.Fatal("custom id must not report IsBuiltin")
@@ -95,13 +99,16 @@ func TestReviewKindDefaultsToDiff(t *testing.T) {
 	}
 }
 
-// TestNormalizeReinsertsFullReview ensures a library that dropped the full-review
-// built-in regains it on normalize.
-func TestNormalizeReinsertsFullReview(t *testing.T) {
+// TestNormalizeReinsertsBuiltins ensures a library that dropped built-ins
+// regains them on normalize.
+func TestNormalizeReinsertsBuiltins(t *testing.T) {
 	lib := Library{Active: DefaultTemplateID, Templates: []Template{{ID: DefaultTemplateID, Name: "d", Kind: KindDiff}}}
-	lib.normalize()
+	lib.Normalize()
 	if lib.Get(FullReviewTemplateID) == nil {
 		t.Fatal("normalize must reinsert the full-review built-in")
+	}
+	if lib.Get(ProblemTemplateID) == nil {
+		t.Fatal("normalize must reinsert the problem built-in")
 	}
 }
 
@@ -120,5 +127,19 @@ func TestValidateRejectsBad(t *testing.T) {
 	}
 	if err := noActive.Validate(); err == nil {
 		t.Fatal("expected unresolvable-active error")
+	}
+	badKind := Library{
+		Active:    DefaultTemplateID,
+		Templates: []Template{{ID: DefaultTemplateID, Kind: KindDiff}, {ID: "x", Kind: "ful"}},
+	}
+	if err := badKind.Validate(); err == nil {
+		t.Fatal("expected invalid-kind error")
+	}
+	blankKind := Library{
+		Active:    DefaultTemplateID,
+		Templates: []Template{{ID: DefaultTemplateID}, {ID: "x"}},
+	}
+	if err := blankKind.Validate(); err != nil {
+		t.Fatalf("blank kind should be accepted as default diff: %v", err)
 	}
 }

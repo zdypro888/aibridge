@@ -89,6 +89,26 @@ func TestWaitIdle_NoBusyStillWorks(t *testing.T) {
 	}
 }
 
+// TestWaitIdle_UnchangedBaselineTimesOut verifies the start gate: if submitting
+// a prompt produces no visible change at all, the unchanged baseline is not
+// activity and must eventually trip the stuck detector.
+func TestWaitIdle_UnchangedBaselineTimesOut(t *testing.T) {
+	get, set := screenFn()
+	set("base")
+
+	opts := WaitOpts{
+		Poll:    5 * time.Millisecond,
+		Stable:  20 * time.Millisecond,
+		Settle:  30 * time.Millisecond,
+		Timeout: 200 * time.Millisecond,
+		Busy:    regexp.MustCompile(`esc to interrupt`),
+	}
+	_, err := WaitIdle(context.Background(), opts, "base", get)
+	if _, ok := err.(ErrTimeout); !ok {
+		t.Fatalf("expected ErrTimeout for unchanged baseline, got %v", err)
+	}
+}
+
 // TestWaitIdle_BusyNeverTimesOut verifies the key intent: a turn that keeps
 // showing the Busy marker is NEVER timed out, even long past Timeout — a
 // genuinely working agent (e.g. a multi-hour run) must not be cut off. The turn

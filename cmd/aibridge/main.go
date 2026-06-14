@@ -76,15 +76,22 @@ func serve(cfg config.Config, configPath string, lib promptlib.Library, promptsP
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	shutdownDone := make(chan struct{})
 	go func() {
+		defer close(shutdownDone)
 		<-ctx.Done()
 		shutCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
+		srv.Stop()
 		_ = httpSrv.Shutdown(shutCtx)
+		_ = srv.Wait(shutCtx)
 	}()
 
 	if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return err
+	}
+	if ctx.Err() != nil {
+		<-shutdownDone
 	}
 	return nil
 }
@@ -126,6 +133,9 @@ func runHeadless(cfg config.Config, tmpl promptlib.Template) error {
 		return err
 	}
 	<-done
+	if err := run.Wait(context.Background()); err != nil {
+		return err
+	}
 	return nil
 }
 

@@ -70,9 +70,10 @@ type FlowConfig struct {
 	// Pluggable so the flow isn't hard-wired: "diff-fixpoint" | "ask-gate" |
 	// "combined". See bridge/strategy.go.
 	Strategy string `yaml:"strategy" json:"strategy"`
-	// ReviewMode selects how each turn's focus is chosen: "handoff" (each agent
-	// writes the next prompt for the other), "rotate" (program rotates a review
-	// lens), or "plain" (fixed templates). Empty = handoff. See bridge.ReviewMode.
+	// ReviewMode selects how each turn's focus/result is exchanged: "handoff"
+	// (peer-written prompt files), "mcp" (submit_review tool calls), "rotate"
+	// (program rotates a review lens), or "plain" (fixed templates). Empty =
+	// handoff. See bridge.ReviewMode.
 	ReviewMode string `yaml:"review_mode" json:"review_mode"`
 	// CodexRmcpFeature, in mcp review mode, controls whether the generated
 	// .codex/config.toml enables experimental_use_rmcp_client. Older codex needs
@@ -171,6 +172,11 @@ func (c Config) Validate() error {
 	case "diff-fixpoint", "ask-gate", "combined":
 	default:
 		return fmt.Errorf("flow.strategy must be diff-fixpoint|ask-gate|combined, got %q", c.Flow.Strategy)
+	}
+	switch c.Flow.ReviewMode {
+	case "", "handoff", "mcp", "rotate", "plain":
+	default:
+		return fmt.Errorf("flow.review_mode must be handoff|mcp|rotate|plain, got %q", c.Flow.ReviewMode)
 	}
 	switch c.Lang {
 	case "", "en", "zh":

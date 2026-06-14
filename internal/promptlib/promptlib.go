@@ -26,7 +26,7 @@ type SidePrompts struct {
 type Template struct {
 	ID     string      `json:"id"`     // stable identifier referenced by config
 	Name   string      `json:"name"`   // human label shown in the UI
-	Kind   string      `json:"kind"`   // review doctrine for empty fields: "diff" or "full"
+	Kind   string      `json:"kind"`   // review doctrine for empty fields: "diff", "full", or "problem"
 	Codex  SidePrompts `json:"codex"`  // codex's first/next (empty = built-in default)
 	Claude SidePrompts `json:"claude"` // claude's first/next (empty = built-in default)
 	Ask    string      `json:"ask"`    // optional custom ask-gate question (empty = default)
@@ -143,6 +143,13 @@ func (l *Library) normalize() {
 	}
 }
 
+// Normalize repairs missing built-in templates, missing kinds, and dangling
+// Active values in-place. Call this before storing a user-submitted library in
+// memory so runtime state matches what Save/Load would produce on disk.
+func (l *Library) Normalize() {
+	l.normalize()
+}
+
 // Get returns the template with the given id, or nil.
 func (l *Library) Get(id string) *Template {
 	for i := range l.Templates {
@@ -175,6 +182,11 @@ func (l Library) Validate() error {
 			return fmt.Errorf("duplicate template id %q", id)
 		}
 		seen[id] = true
+		switch kind := strings.TrimSpace(t.Kind); kind {
+		case "", KindDiff, KindFull, KindProblem:
+		default:
+			return fmt.Errorf("template %q kind must be diff|full|problem, got %q", id, kind)
+		}
 		if id == DefaultTemplateID {
 			hasDefault = true
 		}

@@ -134,6 +134,34 @@ func TestAskGate_NoConvergeWithoutConfirm(t *testing.T) {
 	}
 }
 
+func TestAskGate_NoConvergeWithoutCleanVerdict(t *testing.T) {
+	cases := []struct {
+		name    string
+		verdict Verdict
+	}{
+		{"unknown", VerdictUnknown},
+		{"fixed", VerdictFixed},
+		{"issues", VerdictIssues},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			h := "base"
+			codex := &scriptDriver{name: "codex", hp: &h, steps: []step{
+				{verdict: c.verdict, noMore: true},
+				{verdict: c.verdict, noMore: true},
+			}}
+			claude := &scriptDriver{name: "claude", hp: &h, steps: []step{
+				{verdict: c.verdict, noMore: true},
+				{verdict: c.verdict, noMore: true},
+			}}
+			out, _ := run(Config{MaxRounds: 4, FirstSide: "codex", Strategy: "ask-gate"}, codex, claude, &h)
+			if out.Converged {
+				t.Fatalf("ask-gate should not converge on %s even with NO_MORE_BUGS", c.verdict)
+			}
+		})
+	}
+}
+
 func TestCombined_NeedsBothSignals(t *testing.T) {
 	h := "base"
 	// Clean + no change but no confirmation -> combined must NOT converge

@@ -314,19 +314,22 @@ func verdictFromString(s string) Verdict {
 // parseNoMoreBugs reports the ask-gate confirmation, scanning only the region
 // after the last AUDIT_RESULT (the echoed prompt contains the tokens too).
 func parseNoMoreBugs(screen string) bool {
-	region := afterLastVerdict(screen)
+	region, ok := afterLastVerdict(screen)
+	if !ok {
+		return false
+	}
 	if hasBareMoreBugs(region) {
 		return false
 	}
 	return noMoreBugsRe.MatchString(region)
 }
 
-func afterLastVerdict(screen string) string {
+func afterLastVerdict(screen string) (string, bool) {
 	locs := verdictRe.FindAllStringIndex(screen, -1)
 	if len(locs) == 0 {
-		return screen
+		return "", false
 	}
-	return screen[locs[len(locs)-1][0]:]
+	return screen[locs[len(locs)-1][0]:], true
 }
 
 // hasBareMoreBugs returns true if "MORE_BUGS" appears not immediately preceded by

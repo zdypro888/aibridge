@@ -2,8 +2,10 @@ package bridge
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -11,10 +13,14 @@ import (
 	"sync"
 )
 
+const mcpBackupSuffix = ".aibridge-orig"
+
 // WriteMCPConfig writes the per-repo MCP client config so each CLI connects back
-// to our /mcp/<side> endpoint. Repo-scoped ONLY — it never touches the user's
-// global ~/.claude.json or ~/.codex/config.toml. Both written files are added to
-// .git/info/exclude so they don't pollute git diff.
+// to our /mcp/<side> endpoint, and returns a cleanup function that restores the
+// touched files to their previous contents. Repo-scoped ONLY — it never touches
+// the user's global ~/.claude.json or ~/.codex/config.toml. Both written files
+// are added to .git/info/exclude while the run is active so they don't pollute git
+// diff.
 //   - claude: <repo>/.mcp.json (auto-loaded; trust prompt skipped under
 //     --dangerously-skip-permissions)
 //   - codex:  <repo>/.codex/config.toml (project-scoped). Older codex needed the
@@ -22,8 +28,49 @@ import (
 //     codex supports it natively. rmcp controls whether we emit that flag (on by
 //     default for older-codex compatibility; harmless on versions that ignore it,
 //     but can be turned off if a future codex rejects unknown features).
-func WriteMCPConfig(repoDir, addr string, rmcp bool) error {
+func WriteMCPConfig(repoDir, addr string, rmcp bool) (func() error, error) {
 	base := mcpBaseURL(addr)
+	mcpPath := filepath.Join(repoDir, ".mcp.json")
+	codexDir := filepath.Join(repoDir, ".codex")
+	codexPath := filepath.Join(codexDir, "config.toml")
+
+	if err := restoreMCPBackups(mcpPath, codexPath); err != nil {
+		return nil, err
+	}
+	_, codexDirStatErr := os.Stat(codexDir)
+	codexDirExisted := codexDirStatErr == nil
+	backups, err := backupMCPConfigFiles(mcpPath, codexPath)
+	if err != nil {
+		return nil, err
+	}
+	var excludeAdded []string
+	addExclude := func(pattern string) {
+		if addLocalGitExclude(repoDir, pattern) {
+			excludeAdded = append(excludeAdded, pattern)
+		}
+	}
+	addExclude(".mcp.json")
+	addExclude(".mcp.json" + mcpBackupSuffix)
+	addExclude(".codex/")
+	var cleanupOnce sync.Once
+	var cleanupErr error
+	cleanup := func() error {
+		cleanupOnce.Do(func() {
+			for i := len(backups) - 1; i >= 0; i-- {
+				cleanupErr = errors.Join(cleanupErr, backups[i].restore())
+			}
+			if !codexDirExisted {
+				cleanupErr = errors.Join(cleanupErr, removeIfExists(codexDir))
+			}
+			for _, pattern := range excludeAdded {
+				cleanupErr = errors.Join(cleanupErr, removeLocalGitExclude(repoDir, pattern))
+			}
+		})
+		return cleanupErr
+	}
+	fail := func(err error) (func() error, error) {
+		return nil, errors.Join(err, cleanup())
+	}
 
 	// claude: .mcp.json
 	claudeCfg := map[string]any{
@@ -36,17 +83,15 @@ func WriteMCPConfig(repoDir, addr string, rmcp bool) error {
 	}
 	data, err := json.MarshalIndent(claudeCfg, "", "  ")
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if err := os.WriteFile(filepath.Join(repoDir, ".mcp.json"), data, 0o644); err != nil {
-		return err
+	if err := os.WriteFile(mcpPath, data, 0o644); err != nil {
+		return fail(err)
 	}
-	addLocalGitExclude(repoDir, ".mcp.json")
 
 	// codex: .codex/config.toml (project-scoped)
-	codexDir := filepath.Join(repoDir, ".codex")
 	if err := os.MkdirAll(codexDir, 0o755); err != nil {
-		return err
+		return fail(err)
 	}
 	toml := ""
 	if rmcp {
@@ -54,22 +99,93 @@ func WriteMCPConfig(repoDir, addr string, rmcp bool) error {
 	}
 	toml += "[mcp_servers.aibridge]\n" +
 		fmt.Sprintf("url = %q\n", base+"/mcp/codex")
-	if err := os.WriteFile(filepath.Join(codexDir, "config.toml"), []byte(toml), 0o644); err != nil {
+	if err := os.WriteFile(codexPath, []byte(toml), 0o644); err != nil {
+		return fail(err)
+	}
+	return cleanup, nil
+}
+
+type mcpConfigBackup struct {
+	path      string
+	backup    string
+	hadSource bool
+}
+
+func backupMCPConfigFiles(paths ...string) ([]mcpConfigBackup, error) {
+	out := make([]mcpConfigBackup, 0, len(paths))
+	for _, path := range paths {
+		b := mcpConfigBackup{path: path, backup: path + mcpBackupSuffix}
+		if err := os.Rename(path, b.backup); err != nil {
+			if os.IsNotExist(err) {
+				out = append(out, b)
+				continue
+			}
+			for i := len(out) - 1; i >= 0; i-- {
+				_ = out[i].restore()
+			}
+			return nil, err
+		}
+		b.hadSource = true
+		out = append(out, b)
+	}
+	return out, nil
+}
+
+func restoreMCPBackups(paths ...string) error {
+	var err error
+	for _, path := range paths {
+		err = errors.Join(err, restoreMCPBackup(path))
+	}
+	return err
+}
+
+func restoreMCPBackup(path string) error {
+	backup := path + mcpBackupSuffix
+	if _, err := os.Stat(backup); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
 		return err
 	}
-	addLocalGitExclude(repoDir, ".codex/")
+	if err := removeIfExists(path); err != nil {
+		return err
+	}
+	return os.Rename(backup, path)
+}
+
+func (b mcpConfigBackup) restore() error {
+	if err := removeIfExists(b.path); err != nil {
+		return err
+	}
+	if !b.hadSource {
+		return nil
+	}
+	return os.Rename(b.backup, b.path)
+}
+
+func removeIfExists(path string) error {
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
 	return nil
 }
 
 // mcpBaseURL turns a listen address (possibly ":8799" or "0.0.0.0:8799") into a
 // loopback base URL the child CLIs can dial.
 func mcpBaseURL(addr string) string {
-	host, port, found := strings.Cut(addr, ":")
-	if !found { // no colon: treat whole thing as host, default port
-		return "http://" + addr
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		var found bool
+		host, port, found = strings.Cut(addr, ":")
+		if !found { // no colon: treat whole thing as host, matching the old fallback
+			return "http://" + addr
+		}
 	}
 	if host == "" || host == "0.0.0.0" || host == "::" {
 		host = "127.0.0.1"
+	}
+	if strings.Contains(host, ":") {
+		return "http://" + net.JoinHostPort(host, port)
 	}
 	return "http://" + host + ":" + port
 }
@@ -158,14 +274,15 @@ func (h *MCPHub) deliver(side string, sub ReviewSubmission) bool {
 	peer := peerSide(side)
 	h.mu.Lock()
 	ch := h.waiters[side]
+	if ch == nil {
+		h.mu.Unlock()
+		return false
+	}
 	delete(h.waiters, side)
 	// Cache what the peer was handed, for the dashboard handoff panel.
 	h.handedTo[peer] = sub.NextForPeer
 	h.conv[peer] = sub.NoMoreBugs && sub.NextForPeer == ""
 	h.mu.Unlock()
-	if ch == nil {
-		return false
-	}
 	ch <- sub
 	return true
 }

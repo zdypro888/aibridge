@@ -60,6 +60,15 @@ func Run(ctx context.Context, cfg Config, d Deps) (Outcome, error) {
 		return out, fmt.Errorf("initial hash: %w", err)
 	}
 
+	// seenStates maps each work-tree hash an agent has produced to the round it
+	// first appeared. If a later edit returns the tree to one of these states, the
+	// two reviewers are reverting each other (A→1, B→2, A→1 …) — an oscillation that
+	// keeps the diff moving so the loop can never converge. We surface it (see
+	// below) so the user can intervene. The initial pre-run hash is deliberately
+	// NOT seeded: reverting a bad change back to the pristine original is legitimate,
+	// not an edit war.
+	seenStates := map[string]int{}
+
 	maxRoundsMsg := fmt.Sprintf("%d", cfg.MaxRounds)
 	if unlimited {
 		maxRoundsMsg = "unlimited"
@@ -70,6 +79,7 @@ func Run(ctx context.Context, cfg Config, d Deps) (Outcome, error) {
 		drv := order[out.Rounds%2]
 		side := drv.Name()
 
+		var inject string
 		if ctrl != nil {
 			allowed, injected, abErr := ctrl.gateBeforeTurn(ctx, side)
 			if abErr != nil {
@@ -87,15 +97,16 @@ func Run(ctx context.Context, cfg Config, d Deps) (Outcome, error) {
 				publish(bus, Event{Kind: EventLog, Side: side, Message: "turn skipped"})
 				continue
 			}
-			if injected != "" {
-				lastHandoff = injected + "\n" + lastHandoff
-			}
+			// Manual steering text is kept separate from lastHandoff: folding it in
+			// would make a first-turn inject look like a peer handoff and flip the
+			// first-turn template to the next-turn one.
+			inject = injected
 		}
 
 		ask := strat.NeedsAsk()
 		publish(bus, Event{Kind: EventTurnStarted, Side: side, Round: out.Rounds + 1})
 
-		rev, rerr := drv.Review(ctx, lastHandoff, ask)
+		rev, rerr := drv.Review(ctx, lastHandoff, inject, ask)
 		if rerr != nil {
 			out.Reason = fmt.Sprintf("%s review failed: %v", side, rerr)
 			publish(bus, Event{Kind: EventStopped, Message: out.Reason})
@@ -111,6 +122,20 @@ func Run(ctx context.Context, cfg Config, d Deps) (Outcome, error) {
 		out.Trail = append(out.Trail, rev)
 
 		changed := rev.DiffHash != prevHash
+		if changed && rev.DiffHash != "" {
+			if firstRound, ok := seenStates[rev.DiffHash]; ok {
+				// The work tree returned to a state an agent already produced earlier:
+				// the reviewers are reverting each other. Do NOT abort — the loop already
+				// cannot converge while the diff keeps moving; just surface it so the user
+				// can pause / inject / stop.
+				publish(bus, Event{
+					Kind: EventOscillation, Side: side, Round: out.Rounds,
+					Message: fmt.Sprintf("possible oscillation: %s reverted the work tree to its state from round %d — the two reviewers may be undoing each other; consider intervening", side, firstRound),
+				})
+			} else {
+				seenStates[rev.DiffHash] = out.Rounds
+			}
+		}
 		prevHash = rev.DiffHash
 		// In handoff mode the agent wrote the peer's next prompt to a file; use it
 		// verbatim. Otherwise fall back to the short generated note.

@@ -35,11 +35,14 @@ type Review struct {
 type Driver interface {
 	// Name identifies the side ("codex" / "claude") for logging and reports.
 	Name() string
-	// Review asks the agent to review the current changes. handoff is the short
-	// note from the other side; ask tells the driver to include the
-	// "any more bugs?" question this turn. The agent may edit the shared work
-	// tree. Blocks until the turn is complete.
-	Review(ctx context.Context, handoff string, ask bool) (Review, error)
+	// Review asks the agent to review the current changes. handoff is the note (or
+	// peer-written prompt) from the other side; inject is optional manual steering
+	// text prepended to this turn's prompt; ask tells the driver to include the
+	// "any more bugs?" question this turn. handoff and inject are kept separate so
+	// injecting on the very first turn does not flip the first-turn template to the
+	// next-turn one. The agent may edit the shared work tree. Blocks until the turn
+	// is complete.
+	Review(ctx context.Context, handoff, inject string, ask bool) (Review, error)
 }
 
 // Hasher returns the current work-tree diff hash. Injected so tests can drive

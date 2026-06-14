@@ -305,6 +305,6 @@ func (r *Runner) buildDrivers(cfg config.Config, tmpl promptlib.Template, resume
 type noopDriver struct{ side string }
 
 func (n noopDriver) Name() string { return n.side }
-func (n noopDriver) Review(_ context.Context, _ string, _ bool) (bridge.Review, error) {
+func (n noopDriver) Review(_ context.Context, _, _ string, _ bool) (bridge.Review, error) {
 	return bridge.Review{Side: n.side, Verdict: bridge.VerdictClean, NoMoreBugs: true}, nil
 }

@@ -24,7 +24,7 @@ type step struct {
 
 func (d *scriptDriver) Name() string { return d.name }
 
-func (d *scriptDriver) Review(_ context.Context, _ string, _ bool) (Review, error) {
+func (d *scriptDriver) Review(_ context.Context, _, _ string, _ bool) (Review, error) {
 	if d.i >= len(d.steps) {
 		// Default: no change, clean, confirms no more bugs (lets a driver outlast
 		// the other side without breaking convergence).
@@ -202,5 +202,126 @@ func TestControl_OnlySide(t *testing.T) {
 	}
 	if out.Rounds != 4 {
 		t.Fatalf("expected to hit max rounds, got %d", out.Rounds)
+	}
+}
+
+// recordDriver captures the handoff/inject it was handed each turn, so a test can
+// assert what the loop passed to Review.
+type recordDriver struct {
+	name  string
+	hp    *string
+	calls []recordedCall
+}
+
+type recordedCall struct{ handoff, inject string }
+
+func (d *recordDriver) Name() string { return d.name }
+
+func (d *recordDriver) Review(_ context.Context, handoff, inject string, _ bool) (Review, error) {
+	d.calls = append(d.calls, recordedCall{handoff: handoff, inject: inject})
+	return Review{Side: d.name, Verdict: VerdictClean, NoMoreBugs: true, DiffHash: *d.hp}, nil
+}
+
+// TestFirstTurnInjectStaysFirstTurn guards the fix for the inject-on-first-turn
+// bug: a manual injection before the very first turn must NOT be folded into the
+// handoff (which would flip the first-turn template to the next-turn one). The
+// first turn must see handoff=="" with the inject delivered separately.
+func TestFirstTurnInjectStaysFirstTurn(t *testing.T) {
+	h := "base"
+	codex := &recordDriver{name: "codex", hp: &h}
+	claude := &scriptDriver{name: "claude", hp: &h, steps: []step{{verdict: VerdictClean, noMore: true}}}
+	ctrl := NewControl()
+	ctrl.Inject("codex", "STEER")
+
+	_, err := Run(context.Background(), Config{MaxRounds: 2, FirstSide: "codex", Strategy: "combined"},
+		Deps{Codex: codex, Claude: claude, Hash: mkHasher(&h), Ctrl: ctrl})
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if len(codex.calls) == 0 {
+		t.Fatal("codex was never asked to review")
+	}
+	first := codex.calls[0]
+	if first.handoff != "" {
+		t.Errorf("first-turn handoff = %q, want empty (inject must not become the handoff)", first.handoff)
+	}
+	if first.inject != "STEER" {
+		t.Errorf("first-turn inject = %q, want %q", first.inject, "STEER")
+	}
+}
+
+// TestOscillationDetected verifies the loop emits an EventOscillation when an edit
+// returns the work tree to a state an agent already produced (A→"A", B→"B",
+// A→"A", …) — the edit-war pattern that never converges. A legitimate one-way
+// progression must NOT trigger it.
+func TestOscillationDetected(t *testing.T) {
+	h := "base"
+	// codex flips to "A", claude flips to "B", then codex back to "A" (revisits the
+	// state from its first turn) — that revisit is the oscillation.
+	codex := &scriptDriver{name: "codex", hp: &h, steps: []step{
+		{verdict: VerdictFixed, newHash: "A"},
+		{verdict: VerdictFixed, newHash: "A"},
+	}}
+	claude := &scriptDriver{name: "claude", hp: &h, steps: []step{
+		{verdict: VerdictFixed, newHash: "B"},
+		{verdict: VerdictFixed, newHash: "B"},
+	}}
+	bus := NewBus(64)
+	ch, _, unsub := bus.Subscribe()
+	defer unsub()
+
+	_, err := Run(context.Background(), Config{MaxRounds: 4, FirstSide: "codex", Strategy: "diff-fixpoint"},
+		Deps{Codex: codex, Claude: claude, Hash: mkHasher(&h), Bus: bus})
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	var got int
+	for {
+		select {
+		case e := <-ch:
+			if e.Kind == EventOscillation {
+				got++
+			}
+			continue
+		default:
+		}
+		break
+	}
+	if got == 0 {
+		t.Fatal("expected at least one EventOscillation for an A/B/A/B edit war, got none")
+	}
+}
+
+// TestNoOscillationOnProgress confirms a strictly one-way sequence of distinct
+// states never raises a false oscillation warning.
+func TestNoOscillationOnProgress(t *testing.T) {
+	h := "base"
+	codex := &scriptDriver{name: "codex", hp: &h, steps: []step{
+		{verdict: VerdictFixed, newHash: "A"},
+		{verdict: VerdictClean},
+	}}
+	claude := &scriptDriver{name: "claude", hp: &h, steps: []step{
+		{verdict: VerdictFixed, newHash: "B"},
+		{verdict: VerdictClean},
+	}}
+	bus := NewBus(64)
+	ch, _, unsub := bus.Subscribe()
+	defer unsub()
+
+	_, err := Run(context.Background(), Config{MaxRounds: 4, FirstSide: "codex", Strategy: "diff-fixpoint"},
+		Deps{Codex: codex, Claude: claude, Hash: mkHasher(&h), Bus: bus})
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	for {
+		select {
+		case e := <-ch:
+			if e.Kind == EventOscillation {
+				t.Fatalf("unexpected oscillation warning on a one-way progression: %q", e.Message)
+			}
+			continue
+		default:
+		}
+		break
 	}
 }

@@ -64,7 +64,7 @@ func TestRenderForcesVerdict(t *testing.T) {
 		t.Fatalf("NewPromptSet: %v", err)
 	}
 
-	first := ps.Render("", false)
+	first := ps.Render("", "", false)
 	if !strings.Contains(first, "AUDIT_RESULT") {
 		t.Fatalf("Render must force AUDIT_RESULT onto a custom prompt that omits it; got %q", first)
 	}
@@ -72,10 +72,10 @@ func TestRenderForcesVerdict(t *testing.T) {
 		t.Fatalf("rendered prompt must be single-line; got %q", first)
 	}
 
-	if asked := ps.Render("prev: clean", true); !strings.Contains(asked, "NO_MORE_BUGS") {
+	if asked := ps.Render("prev: clean", "", true); !strings.Contains(asked, "NO_MORE_BUGS") {
 		t.Fatalf("Render(ask=true) must include NO_MORE_BUGS; got %q", asked)
 	}
-	if strings.Contains(ps.Render("prev: clean", false), "NO_MORE_BUGS") {
+	if strings.Contains(ps.Render("prev: clean", "", false), "NO_MORE_BUGS") {
 		t.Fatalf("Render(ask=false) must not include NO_MORE_BUGS")
 	}
 }
@@ -92,7 +92,7 @@ func TestRenderRotatesFocus(t *testing.T) {
 	seen := map[string]bool{}
 	var firstCycle []string
 	for i := range n {
-		out := ps.Render("handoff", false)
+		out := ps.Render("handoff", "", false)
 		// exactly one focus dimension must be present this turn
 		hit := ""
 		for _, f := range reviewFocusEN {
@@ -113,7 +113,7 @@ func TestRenderRotatesFocus(t *testing.T) {
 		t.Fatalf("expected all %d lenses across a full cycle, got %d distinct", n, len(seen))
 	}
 	// Next turn wraps back to the first lens of the cycle.
-	if got := ps.Render("handoff", false); !strings.Contains(got, firstCycle[0]) {
+	if got := ps.Render("handoff", "", false); !strings.Contains(got, firstCycle[0]) {
 		t.Fatalf("rotation should wrap to the first lens, got %q", got)
 	}
 }
@@ -133,7 +133,7 @@ func TestRenderFocusDiffersPerSide(t *testing.T) {
 		}
 		return ""
 	}
-	a, b := lensOf(cx.Render("h", false)), lensOf(cl.Render("h", false))
+	a, b := lensOf(cx.Render("h", "", false)), lensOf(cl.Render("h", "", false))
 	if a == "" || b == "" {
 		t.Fatalf("missing lens: codex=%q claude=%q", a, b)
 	}
@@ -155,7 +155,7 @@ func TestRenderDefaultNoDuplicateVerdict(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewPromptSet: %v", err)
 	}
-	out := ps.Render("", true)
+	out := ps.Render("", "", true)
 	if n := strings.Count(out, verdictMarker); n != 1 {
 		t.Fatalf("verdict instruction should appear exactly once, got %d: %q", n, out)
 	}
@@ -173,10 +173,10 @@ func TestPrompts_CustomTemplate(t *testing.T) {
 	// plain mode: the configured next template is used verbatim (handoff mode
 	// would instead replace the body with the peer's written prompt).
 	ps.SetMode(ModePlain)
-	if p := ps.Render("", false); !strings.HasPrefix(p, "CUSTOM first") {
+	if p := ps.Render("", "", false); !strings.HasPrefix(p, "CUSTOM first") {
 		t.Errorf("custom first template not used: %q", p)
 	}
-	if p := ps.Render("HANDOFF", false); !strings.Contains(p, "CUSTOM next HANDOFF") {
+	if p := ps.Render("HANDOFF", "", false); !strings.Contains(p, "CUSTOM next HANDOFF") {
 		t.Errorf("custom next template not used: %q", p)
 	}
 }
@@ -188,7 +188,7 @@ func TestPrompts_CustomAskPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
-	p := ps.Render("", true)
+	p := ps.Render("", "", true)
 	if !strings.Contains(p, "Double-check concurrency edge cases.") {
 		t.Fatalf("custom ask prompt not rendered: %q", p)
 	}
@@ -201,5 +201,40 @@ func TestPrompts_CustomAskPrompt(t *testing.T) {
 func TestPrompts_BadTemplateErrors(t *testing.T) {
 	if _, err := NewPromptSet(KindDiff, "codex", "{{.Unclosed", "", "en"); err == nil {
 		t.Fatalf("expected error for malformed template")
+	}
+}
+
+// TestAntiOscillationPresentEveryMode locks in the anti-oscillation / "discuss in
+// the handoff, don't edit-war" rule: it must be injected once into EVERY review
+// mode, on the first turn and on later turns alike — that is the whole defense
+// against the two agents flipping the same code back and forth and never
+// converging. A refactor that drops it from any mode must fail here.
+func TestAntiOscillationPresentEveryMode(t *testing.T) {
+	for _, lang := range []string{"zh", "en"} {
+		// Both must appear once per turn in EVERY mode: the anti-oscillation rule and
+		// the "verify by simulation; passing tests is not proof of correctness"
+		// methodology. Both are convergence-/correctness-critical and must survive
+		// context compaction, so they are re-injected each turn.
+		markers := []string{"oscillation", "SIMULAT"}
+		if lang == "zh" {
+			markers = []string{"振荡", "模拟运行"}
+		}
+		for _, m := range []ReviewMode{ModeHandoff, ModeMCP, ModeRotate, ModePlain} {
+			ps, err := NewPromptSet(KindDiff, "codex", "", "", lang)
+			if err != nil {
+				t.Fatalf("NewPromptSet: %v", err)
+			}
+			ps.SetMode(m)
+			// "" exercises the first-turn template; a non-empty handoff exercises a
+			// later turn (where oscillation actually happens).
+			for _, h := range []string{"", "peer handoff text"} {
+				out := ps.Render(h, "", false)
+				for _, marker := range markers {
+					if !strings.Contains(out, marker) {
+						t.Errorf("lang=%s mode=%s handoff=%q: rendered prompt missing %q", lang, m, h, marker)
+					}
+				}
+			}
+		}
 	}
 }

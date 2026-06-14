@@ -352,6 +352,7 @@ const I18N = {
     injectCodex: "inject message to codex…", injectClaude: "inject message to claude…",
     notStarted: "(not started — press ▶ Start)", cancel: "Cancel", save: "Save",
     idle: "idle", running: "running", converged: "✓ converged — both clean", stopped: "stopped",
+    oscillation: "⚠ possible oscillation — the two reviewers may be reverting each other",
     ttStart: "Launch both agents and begin the review loop",
     ttStop: "Abort the current run and tear down the agents",
     ttPause: "Pause the loop at the next turn boundary",
@@ -389,6 +390,7 @@ const I18N = {
     injectCodex: "给 codex 注入一句话…", injectClaude: "给 claude 注入一句话…",
     notStarted: "(未开始 — 点 ▶ 开始)", cancel: "取消", save: "保存",
     idle: "空闲", running: "运行中", converged: "✓ 已收敛 — 双方都干净", stopped: "已停止",
+    oscillation: "⚠ 疑似来回改 — 两位审查员可能在互相回退,建议介入",
     ttStart: "启动两个 AI 并开始互审循环",
     ttStop: "中止当前运行并关闭两个 AI",
     ttPause: "在下一轮边界暂停循环",
@@ -529,6 +531,7 @@ function handleEvent(e) {
     }
     case "converged": setRunning(false); setStatus("converged", "done"); closeTerminals(); addTimeline(e); banner(t("converged"), true); populateAllSessions(); break;
     case "stopped": setRunning(false); setStatus("stopped", "done"); closeTerminals(); addTimeline(e); populateAllSessions(); break;
+    case "oscillation": addTimeline(e); banner(t("oscillation"), false); break;
     default: addTimeline(e);
   }
 }

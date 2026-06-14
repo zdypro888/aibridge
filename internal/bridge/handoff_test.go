@@ -115,7 +115,7 @@ func TestRenderHandoffMode_UsesPeerPromptAndEssentials(t *testing.T) {
 	}
 	ps.SetMode(ModeHandoff)
 	peerPrompt := "FOCUS: the lock ordering in control.go pause/resume"
-	out := ps.Render(peerPrompt, false)
+	out := ps.Render(peerPrompt, "", false)
 	if !contains(out, "lock ordering in control.go") {
 		t.Fatalf("handoff body (peer prompt) missing: %q", out)
 	}

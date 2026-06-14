@@ -142,7 +142,10 @@ func handoffEssentials(l Lang, peer string) string {
 			"(e) 干完后,把结果【写入文件】 .aibridge/next-" + peer + ".md:第一行写 VERDICT: 加 CLEAN 或 FIXED 或 ISSUES(CLEAN=没发现问题且没改代码,FIXED=改了代码修复问题,ISSUES=发现问题但没改);" +
 			"接下来写给另一个审查员(" + peer + ")下一轮的提示词——具体告诉它该重点查哪里、为什么可疑。" +
 			"如果你确信对方已经没有任何值得再查的地方,第一行 VERDICT 之后只写一个词 CONVERGED。" +
-			"这个文件是本轮唯一的结果出口,写了它就行,不需要在屏幕上再打 AUDIT_RESULT。"
+			"这个文件也是你和对方【讨论】的渠道:不同意对方的判断或改动,就在这里讲清你的理由和依据,而不是直接在代码里改回去。" +
+			"这个文件是本轮唯一的结果出口,写了它就行,不需要在屏幕上再打 AUDIT_RESULT。" +
+			"(f) 判断对错靠【模拟运行】(把真实输入与边界/错误/并发/真实事故场景在脑中走一遍,看它到底会怎么表现)加【对照仓库之外的权威依据】(官方文档/规范/可观测行为);测试通过≠代码正确——绿测试只覆盖了它跑到的用例,绝不能当成功依据,也绝不为交差补测试。" +
+			" " + antiOscillation(l)
 	}
 	return "[NON-NEGOTIABLE RULES] " +
 		"(a) Verify independently; do not trust the other reviewer's conclusions — you are a different model and must catch its blind spots. " +
@@ -152,7 +155,10 @@ func handoffEssentials(l Lang, peer string) string {
 		"(e) When done, WRITE YOUR RESULT TO THE FILE .aibridge/next-" + peer + ".md: the FIRST line must be 'VERDICT: ' followed by CLEAN, FIXED, or ISSUES (CLEAN=no problems found and changed nothing, FIXED=edited code to fix problems, ISSUES=found problems but didn't fix); " +
 		"then write the next-turn prompt for the other reviewer (" + peer + ") — what to review next and why it's suspect. " +
 		"If you are confident the other side has nothing left worth reviewing, put CONVERGED as the only word after the VERDICT line. " +
-		"This file is the SOLE output of your turn — writing it is enough; you do NOT also need to print AUDIT_RESULT on screen."
+		"This file is also your channel to DISCUSS with the peer: if you disagree with their judgement or an edit, make your case here with reasons and evidence rather than silently changing the code back. " +
+		"This file is the SOLE output of your turn — writing it is enough; you do NOT also need to print AUDIT_RESULT on screen. " +
+		"(f) Judge correctness by mentally SIMULATING execution (walk real inputs plus edge/error/concurrent/incident cases through the code and see how it actually behaves) and by checking against an authoritative reference OUTSIDE the repo (official docs/spec/observed behavior); passing tests does NOT mean the code is correct — a green suite only covers the cases it runs, so never use it as proof of success and never add tests just to declare done." +
+		" " + antiOscillation(l)
 }
 
 // mcpEssentials restates the core doctrine and tells the agent to finish its turn
@@ -166,7 +172,9 @@ func mcpEssentials(l Lang, peer string) string {
 			"(c) 追求完美:任何真实问题无论多小都要彻底修复;但没有真实缺陷的代码本来就是完美的,不要折腾。" +
 			"(d) 不要 commit 或 stage,把改动留在工作区。" +
 			"(e) 【本轮结束时必须调用 submit_review 工具】提交结果:verdict(CLEAN/FIXED/ISSUES)、summary(本轮做了什么)、" +
-			"next_prompt_for_peer(给另一个审查员 " + peer + " 下一轮的提示词,具体说该查哪、为什么可疑;若没有可让对方查的就留空并把 no_more_bugs 设为 true)。"
+			"next_prompt_for_peer(给另一个审查员 " + peer + " 下一轮的提示词,具体说该查哪、为什么可疑;若不同意对方的判断或改动,在这里讲清理由和依据来【讨论】,而不是直接在代码里改回去;若没有可让对方查的就留空并把 no_more_bugs 设为 true)。" +
+			"(f) 判断对错靠【模拟运行】(把真实输入与边界/错误/并发/真实事故场景在脑中走一遍,看它到底会怎么表现)加【对照仓库之外的权威依据】(官方文档/规范/可观测行为);测试通过≠代码正确——绿测试只覆盖了它跑到的用例,绝不能当成功依据,也绝不为交差补测试。" +
+			" " + antiOscillation(l)
 	}
 	return "[NON-NEGOTIABLE RULES] " +
 		"(a) Verify independently; do not trust the other reviewer's conclusions — you are a different model and must catch its blind spots. " +
@@ -174,7 +182,28 @@ func mcpEssentials(l Lang, peer string) string {
 		"(c) Pursue perfection: fix every real problem no matter how small; but code with no real defect is already perfect — do not churn it. " +
 		"(d) Do NOT commit or stage; leave changes in the work tree. " +
 		"(e) WHEN DONE YOU MUST CALL THE submit_review TOOL with: verdict (CLEAN/FIXED/ISSUES), summary (what you did), and " +
-		"next_prompt_for_peer (the prompt for the other reviewer " + peer + " — what to review next and why; leave empty and set no_more_bugs=true if nothing is left for them)."
+		"next_prompt_for_peer (the prompt for the other reviewer " + peer + " — what to review next and why; if you disagree with their judgement or an edit, make your case here with reasons and evidence to DISCUSS rather than silently changing the code back; leave empty and set no_more_bugs=true if nothing is left for them). " +
+		"(f) Judge correctness by mentally SIMULATING execution (walk real inputs plus edge/error/concurrent/incident cases through the code and see how it actually behaves) and by checking against an authoritative reference OUTSIDE the repo (official docs/spec/observed behavior); passing tests does NOT mean the code is correct — a green suite only covers the cases it runs, so never use it as proof of success and never add tests just to declare done." +
+		" " + antiOscillation(l)
+}
+
+// antiOscillation is the core defense against the two agents flip-flopping the
+// same code back and forth (A→1, B→2, A→1 …): an edit war keeps the diff changing
+// forever so the loop never converges, and it is not how two reviewers should
+// settle a disagreement. The rule routes genuine disagreement into the handoff
+// channel (discuss + decide by evidence) instead of the code. It is injected once
+// per turn by Render for every review mode, so it survives context compaction.
+func antiOscillation(l Lang) string {
+	if l == LangZH {
+		return "【避免来回改(关键)】先分两类:客观缺陷(崩溃/错误结果/竞态/资源泄漏/安全/与权威文档或规范不符)直接修;两种都正确的等价写法、风格、命名、结构取舍属主观判断,保持现状别动。" +
+			"看到对方的改动:若它也正确就【保留】,绝不为了换成你偏好的等价写法而改回去——口味不同不是 bug;只有当你能具体说出对方那一版会怎么出错(给出场景与后果)时才修改,并写明理由。" +
+			"如果你正要把某处改回对方刚改掉的值,停下——这就是来回振荡:不要改代码,而是在给对方的交接里把分歧讲清楚,并给出裁决依据(引用官方文档/规范原文,或写一个能区分两种方案对错的最小测试),按证据决定保留谁。" +
+			"若某个主观分歧确实无法用证据分出对错,保留现状(既有代码或对方的版本),把这个待决问题写进交接留给人类决定,不要继续互相覆盖。"
+	}
+	return "[AVOID FLIP-FLOPPING — IMPORTANT] First split edits in two: objective defects (crash, wrong result, race, resource leak, security, contradicting an authoritative doc/spec) — just fix them; equally-correct equivalent forms, style, naming, and structural taste are judgment calls — leave them as they are. " +
+		"When you see the peer's edit: if it is also correct, KEEP it — never revert it to an equivalent you happen to prefer (taste is not a bug); change it only when you can state concretely how their version fails (give the scenario and consequence), and say why. " +
+		"If you are about to set something back to the value the peer just changed away from, STOP — that is oscillation: do not edit the code; instead, in your handoff to the peer, state the disagreement clearly and give a tie-breaker (quote the authoritative doc/spec, or write a minimal test that decides which version is correct), then keep whichever the evidence supports. " +
+		"If a subjective disagreement genuinely cannot be settled by evidence, keep the incumbent (the existing code or the peer's version) and record the open question in the handoff for the human to decide — do not keep overwriting each other."
 }
 
 // verdictInstruction returns the language-appropriate instruction for ending the
@@ -230,13 +259,13 @@ func replyLangDirective(l Lang) string {
 //     keep edits uncommitted so the other reviewer can see them.
 const (
 	enRules = `Work like a zero-trust third-party auditor, and aim for PERFECTION: every real problem must be fixed completely, no matter how small — never wave something off as "minor" or "not worth it". A latent edge case, a missing error check, an unhandled nil, a subtle race, a resource leak, a wrong comment that misleads — all count and all must be fixed properly. But "perfect" means correct, robust, and safe, NOT rewritten to your stylistic taste: code that has no real defect IS already perfect, so do not churn it. ` +
-		`(1) Read the actual code/docs before judging — do not guess APIs or behavior; verify. ` +
+		`(1) Read the actual code before judging — do not guess APIs or behavior. Verify against an authoritative source OUTSIDE this repo (official docs, the language/library spec, the protocol definition, real observed behavior), never the repo's own comments or names, which can be wrong or stale. ` +
 		`(2) Do NOT trust the other reviewer's conclusions or edits — independently re-verify them. You are a DIFFERENT model, so you will catch blind spots the other one missed; that is the whole point of this loop. If one of their "fixes" is wrong or incomplete, correct it (but never undo a change that is actually correct). ` +
 		`(3) Look beyond the diff: if a real bug elsewhere is exposed or related, fix it too. ` +
 		`(4) Cover correctness, error handling, concurrency/races, edge cases (nil, bounds, overflow), resource cleanup, and API misuse. ` +
 		`(5) Fix the root cause with complete, atomic edits — no TODOs, no placeholders, no fake simplification. ` +
 		`(6) Change code ONLY to fix a real, concrete problem. Do NOT rewrite, reformat, rename, or "tidy" code that already works — cosmetic churn keeps the diff changing forever and the loop can never converge. When you find nothing genuinely wrong, change NOTHING and say so. ` +
-		`(7) After editing, run the project's gates (build, vet, tests, formatter) and make sure they pass. ` +
+		`(7) Passing tests is necessary but is NOT proof of correctness — a green suite only exercises the cases it happens to cover and says nothing about the logic it does not. Judge correctness two further ways: (a) mentally SIMULATE execution — walk concrete inputs through the code, including edge/boundary/error and concurrent paths, and imagine a real production incident (load, a dependency down, malformed input) to see how it actually behaves; (b) compare that behavior against an authoritative third-party reference (official docs, the spec, real captured behavior). Run the project's gates (build, vet, tests, formatter) and keep them green too, but NEVER treat "tests pass" as "the code is correct", and never add happy-path tests just to declare done. ` +
 		`(8) Do NOT commit or stage — leave your changes uncommitted in the work tree so the other reviewer can see them via git diff. ` +
 		`(9) Be honest about convergence: only report all-clean when you genuinely cannot find a real problem — never to end the loop sooner. `
 
@@ -258,13 +287,13 @@ const (
 		`{{.ReplyLang}} {{.Verdict}}{{if .Ask}} {{.AskBlock}}{{end}}`
 
 	zhRules = `请以零信任的第三方审查员视角工作，并追求【完美】：任何真实的问题都必须彻底修复，无论多小——绝不能因为"不是大问题""不值得"就放过。潜在的边界情况、漏掉的错误检查、未处理的 nil、隐蔽的竞态、资源泄漏、会误导人的错误注释——统统算问题，都必须妥善修复。但"完美"指的是正确、健壮、安全，【不是】按你的风格喜好重写：没有真实缺陷的代码本来就是完美的，不要去折腾它。` +
-		`(1) 下结论前先读真实代码/文档，不要臆断 API 或行为，要查证；` +
+		`(1) 下结论前先读真实代码，不要臆断 API 或行为；要对照仓库【之外】的权威依据核实（官方文档、语言/库规范、协议定义、真实可观测行为），而不是相信仓库自己的注释或命名——它们可能是错的或过时的；` +
 		`(2) 不要轻信另一个审查员的结论或改动——独立重新核验。你是【不同的模型】，能发现对方的盲区，这正是本循环的意义所在。如果它的"修复"是错的或不完整，就纠正（但绝不要撤销真正正确的改动）；` +
 		`(3) 不要只盯着 diff——如果发现相关或被牵连的真实 bug，一并修复；` +
 		`(4) 覆盖正确性、错误处理、并发/竞态、边界情况（nil、越界、溢出）、资源释放、API 误用；` +
 		`(5) 修根因，改动要完整、原子——不留 TODO、不留占位、不做虚假简化；` +
 		`(6) 只为修复真实、具体的问题才改代码。不要重写、重排版、改名或"整理"本来就能正常工作的代码——无意义的改动会让 diff 永远在变、循环永远无法收敛。若没发现真正的问题，就【什么都不要改】并如实说明；` +
-		`(7) 改完后运行项目的门禁（构建、vet、测试、格式化）并确保通过；` +
+		`(7) 测试通过是必要的，但【不能】当作正确性的证明——绿测试只跑了它恰好覆盖的用例，对没覆盖的逻辑一无所知。要再用两种方式判断正确性：（a）在脑中【模拟运行】——把具体输入走一遍代码，涵盖边界/极端/错误路径和并发路径，并设想一次真实生产事故（高负载、依赖挂掉、畸形输入），看它到底会怎么表现；（b）把该行为对照仓库【之外】的权威第三方依据（官方文档、规范、真实抓包/可观测行为）核对。也要运行项目门禁（构建、vet、测试、格式化）并保持通过，但【绝不】把"测试通过"等同于"代码正确"，也绝不为了交差而补 happy-path 测试；` +
 		`(8) 不要提交或暂存——把改动留在工作区未提交，好让另一个审查员通过 git diff 看到；` +
 		`(9) 诚实对待收敛：只有当你确实找不出任何真实问题时才报告"全部干净"——绝不为了提前结束循环而敷衍。`
 
@@ -295,13 +324,13 @@ const (
 		`and the loop continues until you both agree the entire codebase is clean with nothing genuinely left to improve. `
 
 	enFullRules = `Work like a zero-trust third-party auditor over the whole project, and aim for PERFECTION: every real problem must be fixed completely, no matter how small — never wave something off as "minor" or "not worth it". A latent edge case, a missing error check, an unhandled nil, a subtle race, a resource leak, a misleading comment — all count and all must be fixed properly. But "perfect" means correct, robust, and safe, NOT rewritten to your stylistic taste: code with no real defect IS already perfect, so do not churn it. ` +
-		`(1) Read the actual code/docs before judging — do not guess APIs or behavior; verify. ` +
+		`(1) Read the actual code before judging — do not guess APIs or behavior. Verify against an authoritative source OUTSIDE this repo (official docs, the language/library spec, the protocol definition, real observed behavior), never the repo's own comments or names, which can be wrong or stale. ` +
 		`(2) Do NOT trust the other reviewer's conclusions or edits — independently re-verify them. You are a DIFFERENT model and will catch blind spots it missed; that is the whole point. Correct a wrong or incomplete "fix", but never undo a change that is actually correct. ` +
 		`(3) Sweep systematically: survey the source tree, and each turn pick the riskiest area not yet audited and read it in full — cover the entire codebase across the rounds, not a single file. ` +
 		`(4) Cover correctness, error handling, concurrency/races, edge cases (nil, bounds, overflow), resource cleanup, API misuse, and clear performance or maintainability defects. ` +
 		`(5) Fix the root cause with complete, atomic edits — no TODOs, no placeholders, no fake simplification. ` +
 		`(6) Change code ONLY to fix a real, concrete problem. Do NOT rewrite, reformat, rename, or "tidy" code that already works — cosmetic churn keeps the diff changing forever and the loop can never converge. When an area is genuinely fine, change NOTHING and move on. ` +
-		`(7) After editing, run the project's gates (build, vet, tests, formatter) and make sure they pass. ` +
+		`(7) Passing tests is necessary but is NOT proof of correctness — a green suite only exercises the cases it happens to cover and says nothing about the logic it does not. Judge correctness two further ways: (a) mentally SIMULATE execution — walk concrete inputs through the code, including edge/boundary/error and concurrent paths, and imagine a real production incident (load, a dependency down, malformed input) to see how it actually behaves; (b) compare that behavior against an authoritative third-party reference (official docs, the spec, real captured behavior). Run the project's gates (build, vet, tests, formatter) and keep them green too, but NEVER treat "tests pass" as "the code is correct", and never add happy-path tests just to declare done. ` +
 		`(8) Do NOT commit or stage — leave your changes uncommitted in the work tree so the other reviewer can see them via git diff. ` +
 		`(9) Be honest about convergence: only report all-clean when you have genuinely swept the project and find no real problem — never just to end the loop. `
 
@@ -316,13 +345,13 @@ const (
 		`你们交替遍历整个代码库（不只是最近的改动），各自修复对方可能遗漏的真实 bug，循环直到双方都认为整个代码库已经干净、没有任何真实可改进之处。`
 
 	zhFullRules = `请以零信任的第三方审查员视角，对整个项目工作，并追求【完美】：任何真实的问题都必须彻底修复，无论多小——绝不能因为"不是大问题""不值得"就放过。潜在的边界情况、漏掉的错误检查、未处理的 nil、隐蔽的竞态、资源泄漏、会误导人的注释——统统算问题，都必须妥善修复。但"完美"指的是正确、健壮、安全，【不是】按你的风格喜好重写：没有真实缺陷的代码本来就是完美的，不要去折腾它。` +
-		`(1) 下结论前先读真实代码/文档，不要臆断 API 或行为，要查证；` +
+		`(1) 下结论前先读真实代码，不要臆断 API 或行为；要对照仓库【之外】的权威依据核实（官方文档、语言/库规范、协议定义、真实可观测行为），而不是相信仓库自己的注释或命名——它们可能是错的或过时的；` +
 		`(2) 不要轻信另一个审查员的结论或改动——独立重新核验。你是【不同的模型】，能发现它遗漏的盲区，这正是本循环的意义。纠正错误或不完整的"修复"，但绝不撤销真正正确的改动；` +
 		`(3) 系统性地遍历：先了解源码树结构，每一轮挑选尚未审查、风险最高的区域并完整读完——在多轮中覆盖整个代码库，而不是只看一个文件；` +
 		`(4) 覆盖正确性、错误处理、并发/竞态、边界情况（nil、越界、溢出）、资源释放、API 误用，以及明显的性能或可维护性缺陷；` +
 		`(5) 修根因，改动要完整、原子——不留 TODO、不留占位、不做虚假简化；` +
 		`(6) 只为修复真实、具体的问题才改代码。不要重写、重排版、改名或"整理"本来就能正常工作的代码——无意义的改动会让 diff 永远在变、循环无法收敛。某处确实没问题，就【什么都不要改】，继续往下走；` +
-		`(7) 改完后运行项目的门禁（构建、vet、测试、格式化）并确保通过；` +
+		`(7) 测试通过是必要的，但【不能】当作正确性的证明——绿测试只跑了它恰好覆盖的用例，对没覆盖的逻辑一无所知。要再用两种方式判断正确性：（a）在脑中【模拟运行】——把具体输入走一遍代码，涵盖边界/极端/错误路径和并发路径，并设想一次真实生产事故（高负载、依赖挂掉、畸形输入），看它到底会怎么表现；（b）把该行为对照仓库【之外】的权威第三方依据（官方文档、规范、真实抓包/可观测行为）核对。也要运行项目门禁（构建、vet、测试、格式化）并保持通过，但【绝不】把"测试通过"等同于"代码正确"，也绝不为了交差而补 happy-path 测试；` +
 		`(8) 不要提交或暂存——把改动留在工作区未提交，好让另一个审查员通过 git diff 看到；` +
 		`(9) 诚实对待收敛：只有当你确实遍历了项目、找不出任何真实问题时才报告"全部干净"——绝不只为结束循环而敷衍。`
 
@@ -343,11 +372,11 @@ const (
 		`You debate the root cause and the best fix, challenge each other's reasoning, and converge on one solution that you then apply to the code. `
 
 	enProblemRules = `Work rigorously and aim for the CORRECT, complete fix — not a band-aid: ` +
-		`(1) Read the actual code/docs to find the TRUE root cause of the reported problem before proposing anything — do not guess; verify against the real code. ` +
+		`(1) Read the actual code to find the TRUE root cause of the reported problem before proposing anything — do not guess; verify against the real code and an authoritative external reference (official docs/spec/observed behavior), not the repo's own comments, which can be wrong or stale. ` +
 		`(2) Do NOT just agree with the other engineer — independently check their diagnosis and proposed fix. You are a DIFFERENT model; if their reasoning is wrong, incomplete, or treats a symptom instead of the cause, say so and correct it. Only agree when you genuinely concur. ` +
 		`(3) Once you and the other engineer agree on the fix, APPLY it: make complete, atomic edits — no TODOs, placeholders, or fake simplification. Fix the root cause, plus any directly-related bug the problem exposes. ` +
 		`(4) Do NOT make unrelated changes — don't rewrite/reformat/rename code that isn't part of the fix; cosmetic churn keeps the loop from converging. ` +
-		`(5) After editing, run the project's gates (build, vet, tests, formatter) and make sure they pass; add a test that reproduces the problem and now passes when sensible. ` +
+		`(5) Passing tests is necessary but is NOT proof the fix is correct. Verify by mentally SIMULATING the failing path and the fixed path through the code (real inputs, edge/error/concurrent cases, a realistic incident), and by checking the behavior against an authoritative third-party reference (official docs/spec/observed behavior). Add a test that reproduces the problem and now passes, run the project's gates and keep them green — but never treat "tests pass" as "the problem is solved". ` +
 		`(6) Do NOT commit or stage — leave changes in the work tree so the other engineer can see them via git diff. ` +
 		`(7) Be honest about convergence: report done only when the problem is genuinely solved and you both agree the fix is correct — never just to end the loop. `
 
@@ -362,11 +391,11 @@ const (
 		`你们就根因和最佳修复方案展开讨论、互相质疑推理，最终达成一致方案并把它落实到代码里。`
 
 	zhProblemRules = `请严谨工作，追求【正确且完整】的修复，而不是打补丁应付：` +
-		`(1) 在提出任何方案前，先读真实代码/文档，找到所报告问题的【真正根因】——不要臆断，要对照真实代码查证；` +
+		`(1) 在提出任何方案前，先读真实代码，找到所报告问题的【真正根因】——不要臆断，要对照真实代码以及仓库【之外】的权威依据（官方文档/规范/可观测行为）查证，而不是相信仓库自己的注释；` +
 		`(2) 不要只是附和另一个工程师——独立核验它的诊断和拟议修复。你是【不同的模型】；如果它的推理有误、不完整、或只治标不治本，要指出并纠正。只有真心认同时才同意；` +
 		`(3) 一旦你和对方就修复方案达成一致，就【落实】它：完整、原子的改动——不留 TODO、占位、虚假简化。修根因，并一并修复该问题牵连出的直接相关 bug；` +
 		`(4) 不要做无关改动——不要重写/重排版/改名与修复无关的代码；无意义改动会让循环无法收敛；` +
-		`(5) 改完后运行项目门禁（构建、vet、测试、格式化）并确保通过；合适时补一个能复现该问题、修复后通过的测试；` +
+		`(5) 测试通过是必要的，但【不能】证明修复正确。要通过在脑中【模拟运行】故障路径与修复后路径来验证（真实输入、边界/错误/并发情况、一次真实事故场景），并把行为对照仓库【之外】的权威第三方依据（官方文档/规范/可观测行为）核对；补一个能复现问题、修复后通过的测试，运行项目门禁并保持通过——但绝不把"测试通过"等同于"问题已解决"；` +
 		`(6) 不要提交或暂存——把改动留在工作区，好让对方通过 git diff 看到；` +
 		`(7) 诚实对待收敛：只有当问题确实解决、且双方都认同修复正确时才报告完成——绝不只为结束循环而敷衍。`
 
@@ -517,8 +546,11 @@ type promptData struct {
 
 // Render builds the prompt for a turn. handoff=="" selects the first-turn
 // template. In handoff mode a non-empty handoff IS the peer's written next-turn
-// prompt and becomes the body. The result is flattened to a single line.
-func (p *PromptSet) Render(handoff string, ask bool) string {
+// prompt and becomes the body. inject is optional manual steering text prepended
+// to the finished prompt — it is kept out of the first-turn decision so injecting
+// on turn one still renders the first-turn template. The result is flattened to a
+// single line.
+func (p *PromptSet) Render(handoff, inject string, ask bool) string {
 	data := promptData{
 		Handoff:   handoff,
 		Ask:       ask,
@@ -561,8 +593,12 @@ func (p *PromptSet) Render(handoff string, ask bool) string {
 	case ModeRotate:
 		// Rotate a per-turn lens so successive turns deep-dive different
 		// dimensions (fights premature convergence). Per side, advancing.
-		out = flatten(out + " " + focusInstruction(p.lang, p.turn))
+		// rotate/plain carry no peer-handoff channel, so the anti-oscillation rule
+		// is appended here (handoff/mcp get it inside their essentials instead).
+		out = flatten(out + " " + focusInstruction(p.lang, p.turn) + " " + antiOscillation(p.lang))
 		p.turn++
+	case ModePlain:
+		out = flatten(out + " " + antiOscillation(p.lang))
 	}
 
 	// Force the machine-parseable verdict onto the end even if a custom template
@@ -574,6 +610,13 @@ func (p *PromptSet) Render(handoff string, ask bool) string {
 	}
 	if ask && !strings.Contains(out, "NO_MORE_BUGS") {
 		out = flatten(out + " " + data.AskBlock)
+	}
+
+	// Prepend manual steering text last: it must not influence the first/next
+	// template choice (driven solely by handoff) nor the token-presence checks
+	// above (so an inject mentioning AUDIT_RESULT can't suppress the verdict line).
+	if strings.TrimSpace(inject) != "" {
+		out = flatten(inject + " " + out)
 	}
 	return out
 }

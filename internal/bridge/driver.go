@@ -105,14 +105,14 @@ func (d *AgentDriver) warmup(ctx context.Context) {
 
 // Review submits this side's prompt, waits for the turn to go idle, reads the
 // rendered screen, and parses verdict + ask-gate confirmation + diff hash.
-func (d *AgentDriver) Review(ctx context.Context, handoff string, ask bool) (Review, error) {
+func (d *AgentDriver) Review(ctx context.Context, handoff, inject string, ask bool) (Review, error) {
 	if !d.warmedUp {
 		d.warmup(ctx)
 		d.warmedUp = true
 	}
 
 	if d.hub != nil && d.prompts != nil && d.prompts.mode == ModeMCP {
-		return d.reviewMCP(ctx, handoff, ask)
+		return d.reviewMCP(ctx, handoff, inject, ask)
 	}
 
 	handoffMode := d.prompts != nil && d.prompts.mode == ModeHandoff
@@ -122,7 +122,7 @@ func (d *AgentDriver) Review(ctx context.Context, handoff string, ask bool) (Rev
 		clearHandoff(d.repoDir, peer)
 	}
 
-	prompt := d.prompts.Render(handoff, ask)
+	prompt := d.prompts.Render(handoff, inject, ask)
 	screen, err := d.submitAndWait(ctx, prompt)
 	if err != nil {
 		debugf("%s WaitIdle err=%v", d.side, err)
@@ -202,11 +202,11 @@ func (d *AgentDriver) Review(ctx context.Context, handoff string, ask bool) (Rev
 // turn-finished signal and carries the structured result. If the agent goes idle
 // WITHOUT calling the tool, fall back to scraping the screen for a verdict so a
 // non-cooperating CLI still works.
-func (d *AgentDriver) reviewMCP(ctx context.Context, handoff string, ask bool) (Review, error) {
+func (d *AgentDriver) reviewMCP(ctx context.Context, handoff, inject string, ask bool) (Review, error) {
 	resultCh := d.hub.await(d.side)
 	defer d.hub.cancelAwait(d.side)
 
-	prompt := d.prompts.Render(handoff, ask)
+	prompt := d.prompts.Render(handoff, inject, ask)
 
 	// Submit, and in the background wait for the turn to go idle (screen-stable).
 	idleCh := make(chan string, 1)

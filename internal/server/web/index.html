@@ -197,7 +197,12 @@
   .cfg textarea { min-height:70px; font:12.5px/1.5 var(--mono); resize:vertical; }
   .cfg input:focus,.cfg select:focus,.cfg textarea:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(106,163,255,.15); }
   .cfg textarea::placeholder { color:#5a6678; opacity:.7; }
-  .cfg textarea.previewbox { min-height:220px; font:12px/1.55 var(--mono); background:#0a0d13; color:#aeb6c2; white-space:pre-wrap; cursor:default; }
+  .cfg textarea.previewbox { min-height:220px; font:12px/1.55 var(--mono); background:#0a0d13; color:#aeb6c2; white-space:pre-wrap; cursor:default; width:100%; box-sizing:border-box; }
+  /* The preview spans the whole editor width (not the 170px label column) and lays
+     its own content out as plain blocks rather than grid cells. */
+  #tmplPreviewOut { grid-column:1 / -1; display:flex; flex-direction:column; gap:4px; }
+  #tmplPreviewOut .prevmeta { color:var(--muted); font-size:12px; line-height:1.5; margin-bottom:4px; }
+  #tmplPreviewOut .prevtitle { color:var(--accent); font-size:12px; font-weight:600; margin-top:8px; }
   .row-end { padding:16px 24px; margin:0; border-top:1px solid var(--border); background:var(--bg2); border-radius:0 0 14px 14px; }
 
   .banner { margin:12px 20px 0; border-radius:var(--radius-sm); font-weight:500; }
@@ -926,7 +931,7 @@ async function previewTmpl() {
   const tpl = tplById(tSel) || {};
   const v = (id) => { const el = $(id); return el ? el.value : ""; };
   const out = $("tmplPreviewOut");
-  out.innerHTML = `<label></label><small style="color:var(--muted)">…</small>`;
+  out.innerHTML = `<div class="prevmeta">…</div>`;
   const r = await api("/api/preview", "POST", {
     kind: tpl.kind || "diff",
     mode: tMode,
@@ -934,11 +939,11 @@ async function previewTmpl() {
     codex: { first: v("tmplCxFirst"), next: v("tmplCxNext") },
     claude: { first: v("tmplClFirst"), next: v("tmplClNext") },
   }).catch(() => null);
-  if (!r) { out.innerHTML = `<label></label><small style="color:var(--bad,#e55)">preview failed</small>`; return; }
+  if (!r) { out.innerHTML = `<div class="prevmeta" style="color:#e55">preview failed</div>`; return; }
   const box = (title, text) =>
-    `<label>${esc(title)}</label><textarea readonly class="previewbox">${esc(text || "")}</textarea>`;
+    `<div class="prevtitle">${esc(title)}</div><textarea readonly class="previewbox">${esc(text || "")}</textarea>`;
   out.innerHTML =
-    `<label></label><small style="color:var(--muted)">mode=${esc(r.mode)} · ask=${r.ask} — ${esc(t("tmplPreviewHint"))}</small>` +
+    `<div class="prevmeta">mode=${esc(r.mode)} · ask=${r.ask} — ${esc(t("tmplPreviewHint"))}</div>` +
     box("Codex · first turn", r.codex) +
     box("Claude · first turn", r.claude);
   $("tmplPreviewBtn").textContent = t("tmplPreviewHide");

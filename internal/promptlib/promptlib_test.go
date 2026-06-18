@@ -143,3 +143,26 @@ func TestValidateRejectsBad(t *testing.T) {
 		t.Fatalf("blank kind should be accepted as default diff: %v", err)
 	}
 }
+
+// TestNormalizeCanonicalizesBuiltinKind guards against a stale prompts.json that
+// left a built-in on the wrong kind (e.g. full-review stuck on "diff").
+func TestNormalizeCanonicalizesBuiltinKind(t *testing.T) {
+	lib := Library{
+		Active: DefaultTemplateID,
+		Templates: []Template{
+			{ID: FullReviewTemplateID, Name: "代码全局审核", Kind: KindDiff}, // wrong
+			{ID: DefaultTemplateID, Name: "修改审核", Kind: KindFull},      // wrong
+			{ID: "custom1", Name: "mine", Kind: KindDiff},              // custom: left alone
+		},
+	}
+	lib.Normalize()
+	if k := lib.Get(FullReviewTemplateID).Kind; k != KindFull {
+		t.Fatalf("full-review kind = %q, want %q", k, KindFull)
+	}
+	if k := lib.Get(DefaultTemplateID).Kind; k != KindDiff {
+		t.Fatalf("default kind = %q, want %q", k, KindDiff)
+	}
+	if k := lib.Get("custom1").Kind; k != KindDiff {
+		t.Fatalf("custom kind must be untouched, got %q", k)
+	}
+}

@@ -378,6 +378,8 @@ const I18N = {
     cfgReviewMode: "Review mode",
     problemLabel: "Problem:", problemPh: "Describe the problem for the two AIs to discuss and fix…",
     tmplModeHint: "handoff/mcp: the peer writes each next-turn prompt (only the first-turn fields apply). rotate/plain: first + next fields both apply.",
+    tmplKind: "Review kind", tmplKindHint: "Picks which built-in doctrine empty fields fall back to, and how the loop scopes the review.",
+    kindDiff: "diff — review the pending changes (git diff)", kindFull: "full — audit the whole codebase", kindProblem: "problem — discuss & fix one problem",
     hoEmpty: "(waiting…)", hoConverged: "✓ nothing left",
     cfgEnabled: "Enabled", cfgCommand: "Command", cfgStable: "Stable for", cfgSettle: "Settle for",
     cfgTimeout: "Stuck timeout (0=off)",
@@ -418,6 +420,8 @@ const I18N = {
     cfgReviewMode: "审查模式",
     problemLabel: "问题:", problemPh: "描述要让两个 AI 讨论并解决的问题…",
     tmplModeHint: "handoff/mcp:下一轮提示词由对方现场写(只有首轮字段生效)。rotate/plain:首轮+后续轮都生效。",
+    tmplKind: "审查类型", tmplKindHint: "决定空字段回退到哪套内置范式,以及循环的审查范围。",
+    kindDiff: "修改审核 — 只看改动(git diff)", kindFull: "全局审核 — 遍历整个代码库", kindProblem: "问题讨论 — 讨论并解决一个问题",
     hoEmpty: "(等待中…)", hoConverged: "✓ 没有可查的了",
     cfgEnabled: "启用", cfgCommand: "启动命令", cfgStable: "稳定判定", cfgSettle: "等待启动",
     cfgTimeout: "卡死超时(0=关闭)",
@@ -868,6 +872,10 @@ async function renderTmpl() {
   const modeOpts = ["handoff", "mcp", "rotate", "plain"]
     .map((m) => `<option value="${m}" ${m === tMode ? "selected" : ""}>${m}</option>`)
     .join("");
+  const curKind = tpl.kind || "diff";
+  const kindOpts = [["diff", t("kindDiff")], ["full", t("kindFull")], ["problem", t("kindProblem")]]
+    .map(([v, lab]) => `<option value="${v}" ${v === curKind ? "selected" : ""}>${esc(lab)}</option>`)
+    .join("");
   // Built-in templates are read-only and store no text, so their segmented default
   // is shown as the textarea VALUE (browsers render its line breaks reliably;
   // placeholder newlines do not). Custom templates keep user text + the default as
@@ -881,6 +889,8 @@ async function renderTmpl() {
     <h3>${t("templates")}</h3>
     <label>${t("cfgReviewMode")}</label><select id="tmplMode">${modeOpts}</select>
     <label></label><small style="color:var(--muted)">${t("tmplModeHint")}</small>
+    <label>${t("tmplKind")}</label><select id="tmplKind"${ro ? " disabled" : ""}>${kindOpts}</select>
+    <label></label><small style="color:var(--muted)">${t("tmplKindHint")}</small>
     <label>${t("tmplActive")}</label>
     <div style="display:flex;gap:8px;align-items:center">
       <select id="tmplSel" style="flex:1">${opts}</select>
@@ -904,6 +914,12 @@ async function renderTmpl() {
     else { previewTmpl(); }
   };
   $("tmplMode").onchange = () => { captureTmpl(); tMode = $("tmplMode").value; renderTmpl(); };
+  $("tmplKind").onchange = async () => {
+    captureTmpl();
+    const tp = tplById(tSel);
+    if (tp && !TBUILTIN.includes(tp.id)) tp.kind = $("tmplKind").value;
+    await renderTmpl(); // reloads the kind's built-in defaults + preview
+  };
   $("tmplSel").onchange = async () => { captureTmpl(); tSel = $("tmplSel").value; await renderTmpl(); };
   $("tmplNew").onclick = () => {
     captureTmpl();
@@ -955,6 +971,7 @@ function captureTmpl() {
   const tpl = tplById(tSel);
   if (!tpl || TBUILTIN.includes(tpl.id)) return;
   if ($("tmplName")) tpl.name = $("tmplName").value;
+  if ($("tmplKind")) tpl.kind = $("tmplKind").value;
   // The "next" fields may be hidden (handoff/mcp); preserve their stored value
   // when absent rather than wiping it.
   if ($("tmplCxFirst")) tpl.codex = { first: $("tmplCxFirst").value, next: $("tmplCxNext") ? $("tmplCxNext").value : (tpl.codex && tpl.codex.next) || "" };

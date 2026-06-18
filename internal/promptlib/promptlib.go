@@ -133,7 +133,17 @@ func (l *Library) normalize() {
 	if len(missing) > 0 {
 		l.Templates = append(missing, l.Templates...)
 	}
+	// Built-in templates always use their canonical kind — a stale or hand-edited
+	// prompts.json must never leave e.g. the full-review built-in stuck on "diff".
+	canon := map[string]string{}
+	for _, b := range builtinTemplates() {
+		canon[b.ID] = b.Kind
+	}
 	for i := range l.Templates {
+		if k, ok := canon[l.Templates[i].ID]; ok {
+			l.Templates[i].Kind = k
+			continue
+		}
 		if strings.TrimSpace(l.Templates[i].Kind) == "" {
 			l.Templates[i].Kind = KindDiff
 		}

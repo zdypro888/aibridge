@@ -134,31 +134,31 @@ func completionNudge(l Lang, peer string, needVerdict, needFile bool) string {
 // doctrine compactly and tells the agent to write the next prompt for the peer.
 func handoffEssentials(l Lang, peer string) string {
 	if l == LangZH {
-		return "【铁律,必须遵守】" +
-			"(a) 独立核验,不要轻信对方结论;你是不同的模型,要发现它的盲区。" +
-			"(b) 只为修复真实、具体的问题才改代码——不要重写/重排版/改名/整理本来就好的代码(无意义改动会让循环无法收敛);没真问题就什么都不要改。" +
-			"(c) 追求完美:任何真实问题无论多小都要彻底修复;但没有真实缺陷的代码本来就是完美的,不要折腾。" +
-			"(d) 不要 commit 或 stage,把改动留在工作区。" +
+		return "【铁律,必须遵守】" + "\n" +
+			"(a) 独立核验,不要轻信对方结论;你是不同的模型,要发现它的盲区。" + "\n" +
+			"(b) 只为修复真实、具体的问题才改代码——不要重写/重排版/改名/整理本来就好的代码(无意义改动会让循环无法收敛);没真问题就什么都不要改。" + "\n" +
+			"(c) 追求完美:任何真实问题无论多小都要彻底修复;但没有真实缺陷的代码本来就是完美的,不要折腾。" + "\n" +
+			"(d) 不要 commit 或 stage,把改动留在工作区。" + "\n" +
 			"(e) 干完后,把结果【写入文件】 .aibridge/next-" + peer + ".md:第一行写 VERDICT: 加 CLEAN 或 FIXED 或 ISSUES(CLEAN=没发现问题且没改代码,FIXED=改了代码修复问题,ISSUES=发现问题但没改);" +
 			"接下来写给另一个审查员(" + peer + ")下一轮的提示词——具体告诉它该重点查哪里、为什么可疑。" +
 			"如果你确信对方已经没有任何值得再查的地方,第一行 VERDICT 之后只写一个词 CONVERGED。" +
 			"这个文件也是你和对方【讨论】的渠道:不同意对方的判断或改动,就在这里讲清你的理由和依据,而不是直接在代码里改回去。" +
-			"这个文件是本轮唯一的结果出口,写了它就行,不需要在屏幕上再打 AUDIT_RESULT。" +
+			"这个文件是本轮唯一的结果出口,写了它就行,不需要在屏幕上再打 AUDIT_RESULT。" + "\n" +
 			"(f) 判断对错靠【模拟运行】(把真实输入与边界/错误/并发/真实事故场景在脑中走一遍,看它到底会怎么表现)加【对照仓库之外的权威依据】(官方文档/规范/可观测行为);测试通过≠代码正确——绿测试只覆盖了它跑到的用例,绝不能当成功依据,也绝不为交差补测试。" +
-			" " + antiOscillation(l)
+			"\n\n" + antiOscillation(l)
 	}
-	return "[NON-NEGOTIABLE RULES] " +
-		"(a) Verify independently; do not trust the other reviewer's conclusions — you are a different model and must catch its blind spots. " +
-		"(b) Change code ONLY to fix a real, concrete problem — never rewrite/reformat/rename/tidy code that already works (cosmetic churn stops the loop from ever converging); if nothing is genuinely wrong, change nothing. " +
-		"(c) Pursue perfection: fix every real problem no matter how small; but code with no real defect is already perfect — do not churn it. " +
-		"(d) Do NOT commit or stage; leave changes in the work tree. " +
+	return "[NON-NEGOTIABLE RULES]" + "\n" +
+		"(a) Verify independently; do not trust the other reviewer's conclusions — you are a different model and must catch its blind spots." + "\n" +
+		"(b) Change code ONLY to fix a real, concrete problem — never rewrite/reformat/rename/tidy code that already works (cosmetic churn stops the loop from ever converging); if nothing is genuinely wrong, change nothing." + "\n" +
+		"(c) Pursue perfection: fix every real problem no matter how small; but code with no real defect is already perfect — do not churn it." + "\n" +
+		"(d) Do NOT commit or stage; leave changes in the work tree." + "\n" +
 		"(e) When done, WRITE YOUR RESULT TO THE FILE .aibridge/next-" + peer + ".md: the FIRST line must be 'VERDICT: ' followed by CLEAN, FIXED, or ISSUES (CLEAN=no problems found and changed nothing, FIXED=edited code to fix problems, ISSUES=found problems but didn't fix); " +
 		"then write the next-turn prompt for the other reviewer (" + peer + ") — what to review next and why it's suspect. " +
 		"If you are confident the other side has nothing left worth reviewing, put CONVERGED as the only word after the VERDICT line. " +
 		"This file is also your channel to DISCUSS with the peer: if you disagree with their judgement or an edit, make your case here with reasons and evidence rather than silently changing the code back. " +
-		"This file is the SOLE output of your turn — writing it is enough; you do NOT also need to print AUDIT_RESULT on screen. " +
+		"This file is the SOLE output of your turn — writing it is enough; you do NOT also need to print AUDIT_RESULT on screen." + "\n" +
 		"(f) Judge correctness by mentally SIMULATING execution (walk real inputs plus edge/error/concurrent/incident cases through the code and see how it actually behaves) and by checking against an authoritative reference OUTSIDE the repo (official docs/spec/observed behavior); passing tests does NOT mean the code is correct — a green suite only covers the cases it runs, so never use it as proof of success and never add tests just to declare done." +
-		" " + antiOscillation(l)
+		"\n\n" + antiOscillation(l)
 }
 
 // mcpEssentials restates the core doctrine and tells the agent to finish its turn
@@ -166,25 +166,25 @@ func handoffEssentials(l Lang, peer string) string {
 // mcp mode; appended every turn since the body may be the peer's free-form text.
 func mcpEssentials(l Lang, peer string) string {
 	if l == LangZH {
-		return "【铁律,必须遵守】" +
-			"(a) 独立核验,不要轻信对方结论;你是不同的模型,要发现它的盲区。" +
-			"(b) 只为修复真实、具体的问题才改代码——不要重写/重排版/改名/整理本来就好的代码(无意义改动会让循环无法收敛);没真问题就什么都不要改。" +
-			"(c) 追求完美:任何真实问题无论多小都要彻底修复;但没有真实缺陷的代码本来就是完美的,不要折腾。" +
-			"(d) 不要 commit 或 stage,把改动留在工作区。" +
+		return "【铁律,必须遵守】" + "\n" +
+			"(a) 独立核验,不要轻信对方结论;你是不同的模型,要发现它的盲区。" + "\n" +
+			"(b) 只为修复真实、具体的问题才改代码——不要重写/重排版/改名/整理本来就好的代码(无意义改动会让循环无法收敛);没真问题就什么都不要改。" + "\n" +
+			"(c) 追求完美:任何真实问题无论多小都要彻底修复;但没有真实缺陷的代码本来就是完美的,不要折腾。" + "\n" +
+			"(d) 不要 commit 或 stage,把改动留在工作区。" + "\n" +
 			"(e) 【本轮结束时必须调用 submit_review 工具】提交结果:verdict(CLEAN/FIXED/ISSUES)、summary(本轮做了什么)、" +
-			"next_prompt_for_peer(给另一个审查员 " + peer + " 下一轮的提示词,具体说该查哪、为什么可疑;若不同意对方的判断或改动,在这里讲清理由和依据来【讨论】,而不是直接在代码里改回去;若没有可让对方查的就留空并把 no_more_bugs 设为 true)。" +
+			"next_prompt_for_peer(给另一个审查员 " + peer + " 下一轮的提示词,具体说该查哪、为什么可疑;若不同意对方的判断或改动,在这里讲清理由和依据来【讨论】,而不是直接在代码里改回去;若没有可让对方查的就留空并把 no_more_bugs 设为 true)。" + "\n" +
 			"(f) 判断对错靠【模拟运行】(把真实输入与边界/错误/并发/真实事故场景在脑中走一遍,看它到底会怎么表现)加【对照仓库之外的权威依据】(官方文档/规范/可观测行为);测试通过≠代码正确——绿测试只覆盖了它跑到的用例,绝不能当成功依据,也绝不为交差补测试。" +
-			" " + antiOscillation(l)
+			"\n\n" + antiOscillation(l)
 	}
-	return "[NON-NEGOTIABLE RULES] " +
-		"(a) Verify independently; do not trust the other reviewer's conclusions — you are a different model and must catch its blind spots. " +
-		"(b) Change code ONLY to fix a real, concrete problem — never rewrite/reformat/rename/tidy code that already works (cosmetic churn stops the loop from ever converging); if nothing is genuinely wrong, change nothing. " +
-		"(c) Pursue perfection: fix every real problem no matter how small; but code with no real defect is already perfect — do not churn it. " +
-		"(d) Do NOT commit or stage; leave changes in the work tree. " +
+	return "[NON-NEGOTIABLE RULES]" + "\n" +
+		"(a) Verify independently; do not trust the other reviewer's conclusions — you are a different model and must catch its blind spots." + "\n" +
+		"(b) Change code ONLY to fix a real, concrete problem — never rewrite/reformat/rename/tidy code that already works (cosmetic churn stops the loop from ever converging); if nothing is genuinely wrong, change nothing." + "\n" +
+		"(c) Pursue perfection: fix every real problem no matter how small; but code with no real defect is already perfect — do not churn it." + "\n" +
+		"(d) Do NOT commit or stage; leave changes in the work tree." + "\n" +
 		"(e) WHEN DONE YOU MUST CALL THE submit_review TOOL with: verdict (CLEAN/FIXED/ISSUES), summary (what you did), and " +
-		"next_prompt_for_peer (the prompt for the other reviewer " + peer + " — what to review next and why; if you disagree with their judgement or an edit, make your case here with reasons and evidence to DISCUSS rather than silently changing the code back; leave empty and set no_more_bugs=true if nothing is left for them). " +
+		"next_prompt_for_peer (the prompt for the other reviewer " + peer + " — what to review next and why; if you disagree with their judgement or an edit, make your case here with reasons and evidence to DISCUSS rather than silently changing the code back; leave empty and set no_more_bugs=true if nothing is left for them)." + "\n" +
 		"(f) Judge correctness by mentally SIMULATING execution (walk real inputs plus edge/error/concurrent/incident cases through the code and see how it actually behaves) and by checking against an authoritative reference OUTSIDE the repo (official docs/spec/observed behavior); passing tests does NOT mean the code is correct — a green suite only covers the cases it runs, so never use it as proof of success and never add tests just to declare done." +
-		" " + antiOscillation(l)
+		"\n\n" + antiOscillation(l)
 }
 
 // antiOscillation is the core defense against the two agents flip-flopping the
@@ -195,14 +195,14 @@ func mcpEssentials(l Lang, peer string) string {
 // per turn by Render for every review mode, so it survives context compaction.
 func antiOscillation(l Lang) string {
 	if l == LangZH {
-		return "【避免来回改(关键)】先分两类:客观缺陷(崩溃/错误结果/竞态/资源泄漏/安全/与权威文档或规范不符)直接修;两种都正确的等价写法、风格、命名、结构取舍属主观判断,保持现状别动。" +
-			"看到对方的改动:若它也正确就【保留】,绝不为了换成你偏好的等价写法而改回去——口味不同不是 bug;只有当你能具体说出对方那一版会怎么出错(给出场景与后果)时才修改,并写明理由。" +
-			"如果你正要把某处改回对方刚改掉的值,停下——这就是来回振荡:不要改代码,而是在给对方的交接里把分歧讲清楚,并给出裁决依据(引用官方文档/规范原文,或写一个能区分两种方案对错的最小测试),按证据决定保留谁。" +
+		return "【避免来回改(关键)】先分两类:客观缺陷(崩溃/错误结果/竞态/资源泄漏/安全/与权威文档或规范不符)直接修;两种都正确的等价写法、风格、命名、结构取舍属主观判断,保持现状别动。" + "\n" +
+			"看到对方的改动:若它也正确就【保留】,绝不为了换成你偏好的等价写法而改回去——口味不同不是 bug;只有当你能具体说出对方那一版会怎么出错(给出场景与后果)时才修改,并写明理由。" + "\n" +
+			"如果你正要把某处改回对方刚改掉的值,停下——这就是来回振荡:不要改代码,而是在给对方的交接里把分歧讲清楚,并给出裁决依据(引用官方文档/规范原文,或写一个能区分两种方案对错的最小测试),按证据决定保留谁。" + "\n" +
 			"若某个主观分歧确实无法用证据分出对错,保留现状(既有代码或对方的版本),把这个待决问题写进交接留给人类决定,不要继续互相覆盖。"
 	}
-	return "[AVOID FLIP-FLOPPING — IMPORTANT] First split edits in two: objective defects (crash, wrong result, race, resource leak, security, contradicting an authoritative doc/spec) — just fix them; equally-correct equivalent forms, style, naming, and structural taste are judgment calls — leave them as they are. " +
-		"When you see the peer's edit: if it is also correct, KEEP it — never revert it to an equivalent you happen to prefer (taste is not a bug); change it only when you can state concretely how their version fails (give the scenario and consequence), and say why. " +
-		"If you are about to set something back to the value the peer just changed away from, STOP — that is oscillation: do not edit the code; instead, in your handoff to the peer, state the disagreement clearly and give a tie-breaker (quote the authoritative doc/spec, or write a minimal test that decides which version is correct), then keep whichever the evidence supports. " +
+	return "[AVOID FLIP-FLOPPING — IMPORTANT] First split edits in two: objective defects (crash, wrong result, race, resource leak, security, contradicting an authoritative doc/spec) — just fix them; equally-correct equivalent forms, style, naming, and structural taste are judgment calls — leave them as they are." + "\n" +
+		"When you see the peer's edit: if it is also correct, KEEP it — never revert it to an equivalent you happen to prefer (taste is not a bug); change it only when you can state concretely how their version fails (give the scenario and consequence), and say why." + "\n" +
+		"If you are about to set something back to the value the peer just changed away from, STOP — that is oscillation: do not edit the code; instead, in your handoff to the peer, state the disagreement clearly and give a tie-breaker (quote the authoritative doc/spec, or write a minimal test that decides which version is correct), then keep whichever the evidence supports." + "\n" +
 		"If a subjective disagreement genuinely cannot be settled by evidence, keep the incumbent (the existing code or the peer's version) and record the open question in the handoff for the human to decide — do not keep overwriting each other."
 }
 
@@ -415,6 +415,24 @@ func DefaultPrompts(kind, side, lang string) (first, next string) {
 	return defaultPrompts(normKind(kind), side, normLang(lang))
 }
 
+// PreviewPrompt renders the FULL first-turn prompt a side would receive for the
+// given kind+mode+lang+ask — the built-in template PLUS every doctrine block
+// Render appends at run time (handoff/mcp essentials, the rotate lens, the
+// anti-oscillation rule, the verdict line, the ask-gate block). It uses the
+// built-in defaults (empty custom fields) and keeps block structure (newlines)
+// so the dashboard can show, read-only, exactly what the agent gets each turn —
+// minus the final single-line flattening. customFirst/customNext, when non-empty,
+// override the built-in template body so a user previews their own edits.
+func PreviewPrompt(kind, side, lang, mode, customFirst, customNext string, ask bool, problem string) string {
+	ps, err := NewPromptSet(normKind(kind), side, customFirst, customNext, lang)
+	if err != nil {
+		return ""
+	}
+	ps.SetMode(ReviewMode(mode))
+	ps.SetProblem(problem)
+	return ps.Preview(ask)
+}
+
 // defaultPrompts returns the (first, next) default template for a
 // kind+side+language. The full-review kind shares one text across both sides.
 func defaultPrompts(kind ReviewKind, side string, l Lang) (first, next string) {
@@ -544,13 +562,29 @@ type promptData struct {
 	Problem   string // user-supplied problem text (problem-discussion kind)
 }
 
-// Render builds the prompt for a turn. handoff=="" selects the first-turn
-// template. In handoff mode a non-empty handoff IS the peer's written next-turn
-// prompt and becomes the body. inject is optional manual steering text prepended
-// to the finished prompt — it is kept out of the first-turn decision so injecting
-// on turn one still renders the first-turn template. The result is flattened to a
-// single line.
+// Render builds the prompt for a turn and flattens it to a single line, safe to
+// submit to the TUI (an embedded newline would be a literal Enter). The readable,
+// newline-separated assembly lives in assemble(); Render is just assemble + the
+// final flatten.
 func (p *PromptSet) Render(handoff, inject string, ask bool) string {
+	return flatten(p.assemble(handoff, inject, ask, false))
+}
+
+// Preview returns the first-turn prompt for this set with its block structure
+// (newlines) preserved, for read-only display in the UI — it shows exactly what
+// the agent receives, doctrine blocks and all, minus the final flattening. It
+// does NOT mutate the set (the rotate-lens counter is left untouched).
+func (p *PromptSet) Preview(ask bool) string {
+	return p.assemble("", "", ask, true)
+}
+
+// assemble builds the full prompt for a turn as readable, newline-separated
+// blocks. handoff=="" selects the first-turn template; in handoff/mcp mode a
+// non-empty handoff IS the peer's written prompt and becomes the body. inject is
+// optional manual steering text prepended last. preview=true suppresses the
+// rotate-lens advance so a preview render has no side effects. Callers that
+// submit to the TUI must wrap the result in flatten().
+func (p *PromptSet) assemble(handoff, inject string, ask, preview bool) string {
 	data := promptData{
 		Handoff:   handoff,
 		Ask:       ask,
@@ -566,7 +600,7 @@ func (p *PromptSet) Render(handoff, inject string, ask bool) string {
 		// next_prompt_for_peer). We do NOT run a template over it (it's already a
 		// complete instruction); we add the machine-critical essentials + language
 		// directive, which the peer's free text won't contain.
-		out = flatten(handoff + " " + data.ReplyLang)
+		out = strings.TrimSpace(handoff) + "\n\n" + data.ReplyLang
 	} else {
 		// First turn (or non-handoff mode): render the configured template.
 		tmpl := p.next
@@ -576,9 +610,9 @@ func (p *PromptSet) Render(handoff, inject string, ask bool) string {
 		var buf bytes.Buffer
 		if err := tmpl.Execute(&buf, data); err != nil {
 			// On a render error fall back to a minimal safe prompt rather than crash.
-			return flatten("Review the current git diff for bugs and fix what you can. " + verdictInstruction(p.lang))
+			return "Review the current git diff for bugs and fix what you can.\n\n" + verdictInstruction(p.lang)
 		}
-		out = flatten(buf.String())
+		out = strings.TrimSpace(buf.String())
 	}
 
 	switch p.mode {
@@ -586,19 +620,21 @@ func (p *PromptSet) Render(handoff, inject string, ask bool) string {
 		// Restate the non-negotiable doctrine + tell the agent to write the next
 		// prompt for the peer. Required because in handoff mode the body is the
 		// peer's free text, which won't carry these.
-		out = flatten(out + " " + handoffEssentials(p.lang, peerSide(p.side)))
+		out += "\n\n" + handoffEssentials(p.lang, peerSide(p.side))
 	case ModeMCP:
 		// Restate doctrine + tell the agent to finish by calling submit_review.
-		out = flatten(out + " " + mcpEssentials(p.lang, peerSide(p.side)))
+		out += "\n\n" + mcpEssentials(p.lang, peerSide(p.side))
 	case ModeRotate:
 		// Rotate a per-turn lens so successive turns deep-dive different
 		// dimensions (fights premature convergence). Per side, advancing.
 		// rotate/plain carry no peer-handoff channel, so the anti-oscillation rule
 		// is appended here (handoff/mcp get it inside their essentials instead).
-		out = flatten(out + " " + focusInstruction(p.lang, p.turn) + " " + antiOscillation(p.lang))
-		p.turn++
+		out += "\n\n" + focusInstruction(p.lang, p.turn) + "\n\n" + antiOscillation(p.lang)
+		if !preview {
+			p.turn++
+		}
 	case ModePlain:
-		out = flatten(out + " " + antiOscillation(p.lang))
+		out += "\n\n" + antiOscillation(p.lang)
 	}
 
 	// Force the machine-parseable verdict onto the end even if a custom template
@@ -606,17 +642,17 @@ func (p *PromptSet) Render(handoff, inject string, ask bool) string {
 	// only what's missing so well-formed templates aren't duplicated. (In MCP mode
 	// this is a screen-parse fallback for when the agent doesn't call the tool.)
 	if !strings.Contains(out, "AUDIT_RESULT") {
-		out = flatten(out + " " + data.Verdict)
+		out += "\n\n" + data.Verdict
 	}
 	if ask && !strings.Contains(out, "NO_MORE_BUGS") {
-		out = flatten(out + " " + data.AskBlock)
+		out += "\n\n" + data.AskBlock
 	}
 
 	// Prepend manual steering text last: it must not influence the first/next
 	// template choice (driven solely by handoff) nor the token-presence checks
 	// above (so an inject mentioning AUDIT_RESULT can't suppress the verdict line).
 	if strings.TrimSpace(inject) != "" {
-		out = flatten(inject + " " + out)
+		out = inject + "\n\n" + out
 	}
 	return out
 }

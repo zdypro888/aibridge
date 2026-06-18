@@ -79,3 +79,42 @@ func TestHandleTemplatesRejectsInvalidKind(t *testing.T) {
 		t.Fatalf("invalid kind status = %d, want %d", w.Code, http.StatusBadRequest)
 	}
 }
+
+// TestPreviewEndpointAssemblesFullPrompt guards that /api/preview returns the
+// full first-turn prompt (built-in template plus the doctrine the loop appends
+// each turn) for the configured mode/strategy, multi-line and with the right peer.
+func TestPreviewEndpointAssemblesFullPrompt(t *testing.T) {
+	cfg := config.Default()
+	cfg.Flow.ReviewMode = "mcp"
+	cfg.Flow.Strategy = "combined"
+	cfg.Lang = "zh"
+	s := New(cfg, "", promptlib.Default(), "")
+
+	req := httptest.NewRequest(http.MethodPost, "/api/preview", strings.NewReader(`{"kind":"full","mode":"mcp"}`))
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	var r struct {
+		Mode, Codex, Claude string
+		Ask                 bool
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &r); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if r.Mode != "mcp" || !r.Ask {
+		t.Fatalf("mode=%q ask=%v, want mcp/true (combined strategy asks)", r.Mode, r.Ask)
+	}
+	if strings.Count(r.Codex, "\n") < 10 {
+		t.Fatalf("preview should be multi-line, got %d newlines", strings.Count(r.Codex, "\n"))
+	}
+	for _, must := range []string{"模拟运行", "避免来回改", "submit_review", "AUDIT_RESULT", "claude"} {
+		if !strings.Contains(r.Codex, must) {
+			t.Fatalf("codex preview missing %q", must)
+		}
+	}
+	if !strings.Contains(r.Claude, "codex") {
+		t.Fatalf("claude preview should name peer codex")
+	}
+}

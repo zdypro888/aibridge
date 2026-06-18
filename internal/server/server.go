@@ -55,6 +55,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/config", s.handleConfig)
 	mux.HandleFunc("/api/templates", s.handleTemplates)
 	mux.HandleFunc("/api/defaults", s.handleDefaults)
+	mux.HandleFunc("/api/preview", s.handlePreview)
 	mux.HandleFunc("/api/sessions", s.handleSessions)
 	mux.HandleFunc("/api/start", s.handleStart)
 	mux.HandleFunc("/api/stop", s.handleStop)
@@ -299,6 +300,47 @@ func (s *Server) handleDefaults(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{
 		"codex":  map[string]string{"first": cf, "next": cn},
 		"claude": map[string]string{"first": lf, "next": ln},
+	})
+}
+
+// handlePreview renders the FULL first-turn prompt each side actually receives —
+// the template plus every doctrine block the loop appends at run time (essentials
+// / rotate lens / anti-oscillation / verdict / ask-gate) — for the given kind and
+// the current run's mode/lang/strategy, with newlines preserved for read-only
+// display. The POST body may carry the (possibly unsaved) custom template text so
+// the user previews their own edits; empty fields fall back to the built-ins.
+//
+//	POST /api/preview  {kind, codex:{first,next}, claude:{first,next}, problem}
+func (s *Server) handlePreview(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Kind    string                       `json:"kind"`
+		Mode    string                       `json:"mode"` // optional; the editor's selected mode, else config
+		Problem string                       `json:"problem"`
+		Codex   struct{ First, Next string } `json:"codex"`
+		Claude  struct{ First, Next string } `json:"claude"`
+	}
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req) // tolerate empty body (use built-ins)
+	}
+	s.mu.Lock()
+	lang := s.cfg.Lang
+	mode := s.cfg.Flow.ReviewMode
+	strategy := s.cfg.Flow.Strategy
+	s.mu.Unlock()
+	if req.Mode != "" {
+		mode = req.Mode
+	}
+	if mode == "" {
+		mode = "handoff"
+	}
+	// The ask-gate block is appended only for strategies that ask; mirror that here
+	// so the preview matches what the configured strategy will actually send.
+	ask := bridge.NewStrategy(strategy).NeedsAsk()
+	writeJSON(w, map[string]any{
+		"mode":   mode,
+		"ask":    ask,
+		"codex":  bridge.PreviewPrompt(req.Kind, "codex", lang, mode, req.Codex.First, req.Codex.Next, ask, req.Problem),
+		"claude": bridge.PreviewPrompt(req.Kind, "claude", lang, mode, req.Claude.First, req.Claude.Next, ask, req.Problem),
 	})
 }
 

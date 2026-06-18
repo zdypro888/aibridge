@@ -197,6 +197,7 @@
   .cfg textarea { min-height:70px; font:12.5px/1.5 var(--mono); resize:vertical; }
   .cfg input:focus,.cfg select:focus,.cfg textarea:focus { outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(106,163,255,.15); }
   .cfg textarea::placeholder { color:#5a6678; opacity:.7; }
+  .cfg textarea.previewbox { min-height:220px; font:12px/1.55 var(--mono); background:#0a0d13; color:#aeb6c2; white-space:pre-wrap; cursor:default; }
   .row-end { padding:16px 24px; margin:0; border-top:1px solid var(--border); background:var(--bg2); border-radius:0 0 14px 14px; }
 
   .banner { margin:12px 20px 0; border-radius:var(--radius-sm); font-weight:500; }
@@ -383,6 +384,8 @@ const I18N = {
     tmplClaudeFirst: "Claude · first turn", tmplClaudeNext: "Claude · next turns",
     tmplDefaultHint: "Empty = use the built-in go-audit default (shown as the grey placeholder).",
     tmplSaved: "Templates saved", tmplNamePrompt: "Template name:", tmplDelConfirm: "Delete this template?",
+    tmplPreview: "🔍 Preview full prompt", tmplPreviewHide: "Hide preview",
+    tmplPreviewHint: "Read-only: the exact first-turn prompt each agent receives — your template plus the doctrine the loop appends every turn (rules, anti-oscillation, verify-by-simulation, verdict). Flattened to one line before it is sent to the agent.",
   },
   zh: {
     start: "▶ 开始", stop: "■ 停止", pause: "⏸ 暂停", resume: "⏵ 继续",
@@ -421,6 +424,8 @@ const I18N = {
     tmplClaudeFirst: "Claude · 首轮", tmplClaudeNext: "Claude · 后续轮",
     tmplDefaultHint: "留空 = 用内置 go-audit 默认(显示为灰色占位)。",
     tmplSaved: "模板已保存", tmplNamePrompt: "模板名称:", tmplDelConfirm: "删除这个模板?",
+    tmplPreview: "🔍 预览完整提示词", tmplPreviewHide: "隐藏预览",
+    tmplPreviewHint: "只读:每个 agent 首轮实际收到的完整提示词 = 你的模板 + 循环每轮自动追加的部分(铁律、避免来回改、模拟运行验证、verdict)。发送给 agent 前会压成单行。",
   },
 };
 let UILANG = localStorage.getItem("aibridge.uilang") || "zh";
@@ -876,7 +881,15 @@ async function renderTmpl() {
     <label>${t("tmplClaudeFirst")}</label>${ta("tmplClFirst", cl.first, d.claude && d.claude.first)}
     ${showNext ? `<label>${t("tmplClaudeNext")}</label>${ta("tmplClNext", cl.next, d.claude && d.claude.next)}` : ""}
     <label>${t("tmplAsk")}</label>${ta("tmplAsk", tpl.ask, "")}
+    <label></label><button type="button" class="ghost" id="tmplPreviewBtn">${t("tmplPreview")}</button>
+    <label></label><small style="color:var(--muted)">${t("tmplPreviewHint")}</small>
+    <div id="tmplPreviewOut"></div>
   `;
+  $("tmplPreviewBtn").onclick = () => {
+    const out = $("tmplPreviewOut");
+    if (out.innerHTML.trim()) { out.innerHTML = ""; $("tmplPreviewBtn").textContent = t("tmplPreview"); }
+    else { previewTmpl(); }
+  };
   $("tmplMode").onchange = () => { captureTmpl(); tMode = $("tmplMode").value; renderTmpl(); };
   $("tmplSel").onchange = async () => { captureTmpl(); tSel = $("tmplSel").value; await renderTmpl(); };
   $("tmplNew").onclick = () => {
@@ -895,6 +908,32 @@ async function renderTmpl() {
     tSel = TLIB.active;
     renderTmpl();
   };
+}
+
+// previewTmpl asks the server to assemble the FULL first-turn prompt each agent
+// would actually receive — the (possibly unsaved) template fields plus the
+// doctrine the loop appends every turn — and shows it read-only. It honors the
+// editor's current mode so the preview matches the fields on screen.
+async function previewTmpl() {
+  const tpl = tplById(tSel) || {};
+  const v = (id) => { const el = $(id); return el ? el.value : ""; };
+  const out = $("tmplPreviewOut");
+  out.innerHTML = `<label></label><small style="color:var(--muted)">…</small>`;
+  const r = await api("/api/preview", "POST", {
+    kind: tpl.kind || "diff",
+    mode: tMode,
+    problem: ($("problemText") ? $("problemText").value : ""),
+    codex: { first: v("tmplCxFirst"), next: v("tmplCxNext") },
+    claude: { first: v("tmplClFirst"), next: v("tmplClNext") },
+  }).catch(() => null);
+  if (!r) { out.innerHTML = `<label></label><small style="color:var(--bad,#e55)">preview failed</small>`; return; }
+  const box = (title, text) =>
+    `<label>${esc(title)}</label><textarea readonly class="previewbox">${esc(text || "")}</textarea>`;
+  out.innerHTML =
+    `<label></label><small style="color:var(--muted)">mode=${esc(r.mode)} · ask=${r.ask} — ${esc(t("tmplPreviewHint"))}</small>` +
+    box("Codex · first turn", r.codex) +
+    box("Claude · first turn", r.claude);
+  $("tmplPreviewBtn").textContent = t("tmplPreviewHide");
 }
 
 // captureTmpl copies the editor fields back into the selected custom template

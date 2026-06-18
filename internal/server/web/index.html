@@ -863,7 +863,15 @@ async function renderTmpl() {
   const modeOpts = ["handoff", "mcp", "rotate", "plain"]
     .map((m) => `<option value="${m}" ${m === tMode ? "selected" : ""}>${m}</option>`)
     .join("");
-  const ta = (id, val, ph) => `<textarea id="${id}"${roA} placeholder="${esc(ph || "")}">${esc(val || "")}</textarea>`;
+  // Built-in templates are read-only and store no text, so their segmented default
+  // is shown as the textarea VALUE (browsers render its line breaks reliably;
+  // placeholder newlines do not). Custom templates keep user text + the default as
+  // a grey placeholder hint.
+  const ta = (id, val, def) => {
+    const v = ro ? (def || "") : (val || "");
+    const ph = ro ? "" : (def || "");
+    return `<textarea id="${id}"${roA} placeholder="${esc(ph)}">${esc(v)}</textarea>`;
+  };
   $("tmplFields").innerHTML = `
     <h3>${t("templates")}</h3>
     <label>${t("cfgReviewMode")}</label><select id="tmplMode">${modeOpts}</select>

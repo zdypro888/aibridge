@@ -424,6 +424,11 @@ change:
 | `kb_task(action, wip)` | 任务态读写:start / update / complete(自动归档为变更记录)/ get | §7 |
 | `kb_investigate(question)` | 派侦查 agent 在独立上下文定位问题,返回蒸馏后的 findings(§10.4) | 上下文卫生、定位 |
 | `kb_submit_findings(findings)` | 侦查 agent 专用:交卷(结论/位置指针/建议/风险),服务端路由给等待的主 AI | §10.4 |
+| `kb_adopt(orphan, action)` | 孤儿节点认领(claim 建 remap)或送葬(bury 确认作废) | §12.6 迁移兜底 |
+| `kb_flow(action, flow)` | 流程/主题节点的创建、更新与废弃 | §6 横向维度 |
+| `kb_maintain(action)` | 取一条维护欠账/销账(摘要落后、待压缩、疑似重复) | §12.7 |
+
+完整的 API 规范(端点分流、会话识别、入参校验、KB_ERR 错误码、hook 注入端点 `GET /inject`)见 `knowledge-impl.md` §7。`kb_verify` 含三种判定:confirm(升级)/ refute(勘误,须证据,触发级联回收)/ obsolete(体面退休:没错但不再适用,不触发级联)。
 
 **锚点由服务端计算,AI 只报符号名。**
 AI 自己算内容哈希不现实(它看到的是带行号的展示文本,算不准也不该算)。正确分工:AI 调 `kb_remember` / `kb_record_change` 时只提供符号路径(`internal/auth/login.go#Login`);MCP **服务端**解析源码 AST、切出该符号的代码单元、计算内容哈希、落锚。腐烂检测(§12 第 3 条)与过时警报(§9.5)同样由服务端在读取时自动做。
@@ -718,6 +723,7 @@ suspect 条目会随代码演进不断产生,如果没人重验就会堆积成"�
 | 15 | 上下文卫生(→§9.4):分析上下文可丢弃,知识库/任务态是其蒸馏残留;三步工作流(侦查→蒸馏→干净上下文执行),交接只传结论与指针、不复制原文;与 Explore 子代理的差别在蒸馏产物落库持久化 |
 | 16 | 侦查即服务 kb_investigate(→§10.4):服务端亲自派侦查 agent(独立上下文)定位问题、蒸馏落库、kb_submit_findings 交卷路由回主 AI——上下文隔离从纪律变成结构保证;定位三件套改为靠真实问题自动生长;实现复用 aibridge 的 PTY 驱动与 MCPHub await/deliver 模式,排进第二期 |
 | 17 | MCP API 全量定稿(→`knowledge-impl.md` §7):端点按角色分流(/mcp/main 与 /mcp/scout/<job>,工具可见性即权限与递归护栏)、Mcp-Session-Id 会话识别(台账基础)、协议方法表、10 个工具的入参/校验/返回规格(新增 kb_init/kb_status 生命周期工具)、KB_ERR 业务错误码约定(附"怎么办"指引) |
+| 18 | API 完备性审计("确定够用吗"):以"每个机制必须有 API 承载点"为判据逐条对照,补齐 6 个缺口——kb_flow(横向层悬空)、kb_verify:obsolete(体面退休,区别于勘误)、kb_adopt(孤儿处置)、kb_maintain(欠账取用/销账)、GET /inject(hook 注入的工程落点,非 MCP)、recall 翻页 + author 从 clientInfo 推导防冒名;工具总数 13 + 1 个 HTTP 端点 |
 
 ## 附录 B:全流程纸上推演一(单 agent 排障)
 

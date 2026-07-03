@@ -163,6 +163,8 @@ type Parser interface {
 | `POST /mcp/scout/<job-id>` | 服务端派出的侦查 agent(二期) | `kb_map` `kb_recall` `kb_remember` `kb_task` `kb_submit_findings`(无 investigate 防套娃、无 record_change——侦察兵不改码) |
 
 - **会话识别**(读取台账/过时警报的基础):`initialize` 响应带 `Mcp-Session-Id` 头,客户端后续请求回带(streamable-http 标准行为);不回带则视为匿名连接,台账类功能对其退化关闭。
+- **author 来源**:变更记录/条目的 `author` 由服务端从 `initialize` 的 `clientInfo.name` 推导(如 "claude-code"/"codex"),不接受 AI 自报,防冒名。
+- **hook 注入端点(非 MCP,三期)**:`GET /inject?file=<path>&session=<id>` 返回该文件的注入文本(节点知识+祖先摘要+过时警报+wip 台账,按 §9.2 预算裁剪)。宿主 hook(如 Claude Code 的 PreToolUse 拦 Read/Edit)是 shell 脚本,直接 curl 这个端点即可,不必走 MCP 握手——这是"自动注入"的工程落点。
 - **协议方法**:
 
 | 方法 | 行为 |
@@ -188,8 +190,17 @@ type Parser interface {
 | `kb_task` | 任务态 start/update/complete/get | main+scout | 二 |
 | `kb_investigate` | 派侦查 agent 定位问题,返回蒸馏 findings | main | 二 |
 | `kb_submit_findings` | 侦查 agent 交卷 | scout | 二 |
+| `kb_adopt` | 孤儿节点处置:claim(建 remap 认领)/ bury(确认作废) | main | 二 |
+| `kb_flow` | 流程/主题节点 CRUD(创建、更新步骤、废弃) | main+scout | 三 |
+| `kb_maintain` | 维护欠账:next(取一条债)/ complete(销账) | main | 三 |
 
 未到期的工具不出现在 `tools/list`(而非返回"未实现")。
+
+**API 完备性判据**(第 18 轮审计结论):概念文档的每个机制必须有 API 承载点——
+金字塔读写(map/recall/remember)、决策链(record_change)、自愈(verify:refute)、
+体面退休(verify:obsolete)、任务态(task)、侦查(investigate/submit_findings)、
+迁移三层(record_change:remaps / adopt / 服务端自动)、横向层(flow)、
+维护欠账(maintain/status)、冷启动(init/status)、自动注入(GET /inject)。
 
 ### 7.3 工具规格
 
@@ -218,7 +229,8 @@ type Parser interface {
 #### kb_recall(一期;flow 模式三期)
 ```
 入参: { "query": "登录锁定" 或 "internal/auth/login.go#Login",
-        "mode": "usage"|"history"|"flow", "limit": 5 (可选) }
+        "mode": "usage"|"history"|"flow", "limit": 5 (可选),
+        "before": "chg_… (可选,history 翻页:取此记录之前的更早历史)" }
 行为: query 先按节点 ID 精确匹配,否则走关键词倒排(§8);
       usage → 节点快照(auto 现算 + Entries,含 confidence 标注);
       history → 快照 + journal 记录(近 3 条全量,更早给条数提示),按 lineage 联查(重构不断链);
@@ -252,13 +264,43 @@ type Parser interface {
 
 #### kb_verify(二期)
 ```
-入参: { "entry": "node-id#entry-id", "verdict": "confirm"|"refute",
-        "evidence": "原文引用/测试名" }
-校验: refute 必须附 evidence,无证据拒收(knowledge.md §12.5)。
+入参: { "entry": "node-id#entry-id", "verdict": "confirm"|"refute"|"obsolete",
+        "evidence": "原文引用/测试名(refute 必填)", "reason": "obsolete 时必填" }
+校验: refute 必须附 evidence,无证据拒收(knowledge.md §12.5);
+      obsolete 是"没错但不再适用"的体面退休(功能下线/约定废止),须附 reason。
 效果: confirm → inferred 升 verified;refute → 该条 refuted(保留),
       勘误进 journal,沿 based_on 级联降级衍生条目为 suspect,
-      并提示在原节点补一条"疫苗" pitfall。
+      并提示在原节点补一条"疫苗" pitfall;
+      obsolete → 条目归档退出注入,不触发级联(它没错,衍生结论未必失效)。
 返回: { newConfidence, cascaded: [受牵连条目] }
+```
+
+#### kb_adopt(二期)
+```
+入参: { "orphan": "旧节点 ID", "action": "claim"|"bury",
+        "to": "新节点 ID(claim 必填)", "reason": "bury 必填" }
+行为: claim → 建立 remap、迁移 Entries、接续 lineage(等价一次申报式迁移);
+      bury → 孤儿归档(保留可溯),journal 记录送葬原因。
+返回: { migrated | buried }
+```
+
+#### kb_flow(三期)
+```
+入参: { "action": "create"|"update"|"deprecate",
+        "flow": { "id": "flow:user-login", "title": "用户登录",
+                  "steps": [ { "node": "api/auth_handler.go#PostLogin", "note": "入口" }, ... ],
+                  "conventions": [...], "troubleshoot": "排障入口说明" } }
+校验: steps 引用的树节点必须存在;引用登记反向链接(树节点 flows 字段)。
+返回: flow 节点状态。主题节点(topic:)同一工具,steps 可空。
+```
+
+#### kb_maintain(三期)
+```
+入参: { "action": "next"|"complete", "id": "债务项 ID(complete 必填)",
+        "scope": "路径前缀(可选,next 时只取本任务相关的债)" }
+行为: next → 返回一条最高优先级欠账(摘要落后/待压缩/疑似重复)及操作指引;
+      complete → 销账。配合 §12.2/§12.7 的限额偿还纪律。
+返回: 债务项 / ack
 ```
 
 #### kb_task(二期)

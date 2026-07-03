@@ -194,7 +194,17 @@ type Parser interface {
 效果: journal 追加;返回提示要求顺手更新快照(如需)。
 ```
 
-`kb_verify` / `kb_task` 属第二期,tools/list 先不暴露。
+`kb_verify` / `kb_task` / `kb_investigate` 属第二期,tools/list 先不暴露。
+
+其中 `kb_investigate`(侦查即服务,knowledge.md §10.4)的实现要点提前记录:
+- 侦查 agent 用 **PTY 驱动交互式 CLI**(复用 `internal/agent` 的启动/稳屏检测),
+  走订阅路径,规避 SDK/`-p` 的独立限流池;`claude -p` 子进程留作零配置降级模式(配置项选择);
+- 交卷路由复用 `internal/bridge` 的 MCPHub await/deliver 模式:`kb_investigate` await,
+  侦查 agent 调 `kb_submit_findings` deliver;
+- 第一版同步阻塞(文档注明调大客户端 MCP 超时),票据模式(job id + 轮询)后议;
+- 递归护栏:侦查 agent 的 MCP 端点不暴露 `kb_investigate`(按连接来源区分工具集);
+- 侦查 prompt 模板:问题 + 侦查纪律(蒸馏义务:kb_remember 流程与关键词、
+  kb_task 写 wip)+ "必须以 kb_submit_findings 结束"。
 
 ## 8. 检索第一版(index 包)
 
